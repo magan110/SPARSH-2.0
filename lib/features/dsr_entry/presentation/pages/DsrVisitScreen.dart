@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:learning2/features/dashboard/presentation/pages/edit_kyc_screen.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../data/services/dsr_activity_service.dart';
+import 'package:dropdown_search/dropdown_search.dart';
 
 class DsrVisitScreen extends StatefulWidget {
   const DsrVisitScreen({super.key});
@@ -72,25 +74,67 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     'OT_WCP': '0',
   };
   Map<String, String> currentMonthBW = {
-    'WC': '0.00',
-    'WCP': '0.00',
-    'VAP': '0.00',
+    'BW_WC': '0.00',
+    'BW_WCP': '0.00',
+    'BW_VAP': '0.00',
+  };
+
+  Map<String, String> last3MonthBW = {
+    'BW_WC': '0.00',
+    'BW_WCP': '0.00',
+    'BW_VAP': '0.00',
   };
 
   final _formKey = GlobalKey<FormState>();
 
+  // Service
+  final DSRActivityService _dsrService = DSRActivityService();
+
+  // Dynamic dropdown data
+  List<Map<String, dynamic>> purchaserTypeOptions = [];
+  List<Map<String, dynamic>> areaCodeOptions = [];
+  List<Map<String, dynamic>> exceptionReasonOptions = [];
+  List<Map<String, dynamic>> giftTypeOptions = [];
+  List<Map<String, dynamic>> brandOptions = [];
+  List<Map<String, dynamic>> productCategoryOptions = [];
+  Map<String, List<Map<String, dynamic>>> productsByCategory = {};
+
+  bool isPurchaserTypeLoading = true;
+  bool isAreaCodeLoading = true;
+  bool isExceptionReasonLoading = true;
+  bool isGiftTypeLoading = true;
+  bool isBrandLoading = true;
+  bool isProductCategoryLoading = true;
+  Map<String, bool> isProductLoading = {};
+
+  String? purchaserTypeError;
+  String? areaCodeError;
+  String? exceptionReasonError;
+  String? giftTypeError;
+  String? brandError;
+  String? productCategoryError;
+  Map<String, String?> productError = {};
+
+  List<Map<String, dynamic>> purchaserCodeOptions = [];
+  bool isPurchaserCodeLoading = false;
+  String? purchaserCodeError;
+
+  final TextEditingController marketNameController = TextEditingController();
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController kycStatusController = TextEditingController();
+
   // Mock data for dropdowns
-  final List<String> documentNoList = ['Doc001', 'Doc002', 'Doc003'];
-  final List<String> purchaserTypeList = [
-    'Retailer',
-    'Rural Retailer',
-    'Stockiest',
-    'Direct Dealer',
-    'Rural Stockiest',
-    'AD',
-    'UBS',
-  ];
-  final List<String> areaCodeList = ['Area1', 'Area2', 'Area3'];
+  // final List<String> documentNoList = ['Doc001', 'Doc002', 'Doc003'];
+  // final List<String> purchaserTypeList = [
+  //   'Retailer',
+  //   'Rural Retailer',
+  //   'Stockiest',
+  //   'Direct Dealer',
+  //   'Rural Stockiest',
+  //   'AD',
+  //   'UBS',
+  // ];
+  // final List<String> areaCodeList = ['Area1', 'Area2', 'Area3'];
   final List<String> pendingIssueDetails = ['Token', 'Scheme', 'Product', 'Other'];
   final List<String> cityReasons = [
     'Network Issue',
@@ -159,6 +203,13 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     });
   }
 
+  // Helper to safely get dropdown value
+  String? _dropdownValue(String? value, List<Map<String, dynamic>> options) {
+    if (value == null) return null;
+    final values = options.map((e) => e['value']?.toString()).toSet();
+    return values.contains(value) ? value : null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -166,10 +217,185 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     if (productList.isEmpty) addProductRow();
     if (giftList.isEmpty) addGiftRow();
     if (marketSkuList.isEmpty) addMarketSkuRow();
+    _fetchDropdowns();
+    _fetchOtherDropdowns();
+    marketNameController.text = marketName ?? '';
+    nameController.text = name ?? '';
+    kycStatusController.text = kycStatus ?? '';
+  }
+
+  Future<void> _fetchDropdowns() async {
+    setState(() {
+      isPurchaserTypeLoading = true;
+      isAreaCodeLoading = true;
+      purchaserTypeError = null;
+      areaCodeError = null;
+    });
+    try {
+      final purchaserTypes = await _dsrService.getCustomerTypes();
+      setState(() {
+        purchaserTypeOptions = purchaserTypes;
+        isPurchaserTypeLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        purchaserTypeError = 'Failed to load purchaser types';
+        isPurchaserTypeLoading = false;
+      });
+    }
+    try {
+      final areas = await _dsrService.getAllAreas();
+      setState(() {
+        areaCodeOptions = areas;
+        isAreaCodeLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        areaCodeError = 'Failed to load area codes';
+        isAreaCodeLoading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchOtherDropdowns() async {
+    setState(() {
+      isExceptionReasonLoading = true;
+      isGiftTypeLoading = true;
+      isBrandLoading = true;
+      isProductCategoryLoading = true;
+      exceptionReasonError = null;
+      giftTypeError = null;
+      brandError = null;
+      productCategoryError = null;
+    });
+    try {
+      final reasons = await _dsrService.getExceptionReasons();
+      setState(() {
+        exceptionReasonOptions = reasons;
+        isExceptionReasonLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        exceptionReasonError = 'Failed to load exception reasons';
+        isExceptionReasonLoading = false;
+      });
+    }
+    try {
+      final gifts = await _dsrService.getGiftTypes();
+      setState(() {
+        giftTypeOptions = gifts;
+        isGiftTypeLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        giftTypeError = 'Failed to load gift types';
+        isGiftTypeLoading = false;
+      });
+    }
+    try {
+      final brands = await _dsrService.getBrands();
+      setState(() {
+        brandOptions = brands;
+        isBrandLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        brandError = 'Failed to load brands';
+        isBrandLoading = false;
+      });
+    }
+    try {
+      final categories = await _dsrService.getProductCategories();
+      setState(() {
+        productCategoryOptions = categories;
+        isProductCategoryLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        productCategoryError = 'Failed to load product categories';
+        isProductCategoryLoading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchProductsForCategory(String category) async {
+    isProductLoading[category] = true;
+    productError[category] = null;
+    setState(() {});
+    try {
+      final products = await _dsrService.getProducts(category: category);
+      productsByCategory[category] = products;
+      isProductLoading[category] = false;
+      setState(() {});
+    } catch (e) {
+      productError[category] = 'Failed to load products';
+      isProductLoading[category] = false;
+      setState(() {});
+    }
+  }
+
+  bool isSubmitting = false;
+
+  Future<void> _submitForm() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => isSubmitting = true);
+    final loginId = 'testuser'; // Replace with actual loginId
+    try {
+      // Collect a representative subset of form data for demo
+      final dsrData = {
+        'ProcType': processType, // 'A', 'U', 'D'
+        'DocuNumb': documentNo,
+        'DocuDate': reportDate,
+        'AreaCode': areaCode,
+        'CusRtlFl': purchaserType,
+        'CusRtlCd': purchaserCode,
+        'MrktName': marketName,
+        'PendIsue': pendingIssue,
+        'PndIsuDt': pendingIssueDetail,
+        'IsuDetal': issueDetail,
+        'CreateId': loginId,
+        // Add more fields as needed
+      };
+      final result = await _dsrService.saveDSR(dsrData);
+      setState(() => isSubmitting = false);
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'] ?? 'Submitted successfully!')),
+        );
+        // Optionally reset form or navigate
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'] ?? 'Submission failed'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      setState(() => isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Submission error: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final kycStatusOptions = ['Verified', 'Not Verified'];
+    final validKycStatus = kycStatusOptions.contains(kycStatus) ? kycStatus : null;
+
+    final displayContestOptions = ['Y', 'N', 'NA'];
+    final displayContestLabels = {'Y': 'Yes', 'N': 'No', 'NA': 'NA'};
+    final validDisplayContest = displayContestOptions.contains(displayContest) ? displayContest : null;
+
+    final pendingIssueOptions = ['Y', 'N'];
+    final pendingIssueLabels = {'Y': 'Yes', 'N': 'No'};
+    final validPendingIssue = pendingIssueOptions.contains(pendingIssue) ? pendingIssue : null;
+
+    final kycStatusDisplayMap = {'Y': 'Yes', 'N': 'No'};
+
+    // Before building Product Category dropdown
+    print('ProductCategoryOptions: ' + productCategoryOptions.toString());
+    // Before building Gift Type dropdown
+    print('GiftTypeOptions: ' + giftTypeOptions.toString());
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('DSR Visit Entry'),
@@ -218,97 +444,140 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         ],
                       ),
                       if (processType != 'A')
-                        DropdownButtonFormField<String>(
-                          value: documentNo,
-                          decoration: _fantasticInputDecoration('Document No'),
-                          items: documentNoList
-                              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                              .toList(),
-                          onChanged: (v) => setState(() => documentNo = v),
-                        ),
+                        const SizedBox(),
                     ],
                   ),
                 ),
                 const SizedBox(height: SparshSpacing.sm),
                 // --- Purchaser/Retailer Type, Area Code, Purchaser Code, Name, KYC ---
-                const _SectionHeader(icon: Icons.person, label: 'Purchaser / Retailer Details'),
+                const _SectionHeader(icon: Icons.person, label: 'Basic Details'),
                 _FantasticCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      DropdownButtonFormField<String>(
-                        value: purchaserType,
-                        decoration: _fantasticInputDecoration('Purchaser / Retailer Type *'),
-                        items: purchaserTypeList
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                            .toList(),
-                        onChanged: (v) => setState(() => purchaserType = v),
-                        validator: (v) => v == null ? 'Required' : null,
-                      ),
+                      isPurchaserTypeLoading
+                          ? const LinearProgressIndicator()
+                          : purchaserTypeError != null
+                              ? Text(purchaserTypeError!, style: const TextStyle(color: Colors.red))
+                              : DropdownButtonFormField<String>(
+                                  value: _dropdownValue(purchaserType, purchaserTypeOptions),
+                                  decoration: _fantasticInputDecoration('Purchaser / Retailer Type *'),
+                                  items: purchaserTypeOptions
+                                      .map((e) => DropdownMenuItem<String>(
+                                            value: e['value']?.toString() ?? '',
+                                            child: Text(e['text']?.toString() ?? e['value']?.toString() ?? ''),
+                                          ))
+                                      .toList(),
+                                  onChanged: (v) => setState(() => purchaserType = v ?? ''),
+                                  validator: (v) => v == null ? 'Required' : null,
+                                ),
                       const SizedBox(height: SparshSpacing.sm),
-                      DropdownButtonFormField<String>(
-                        value: areaCode,
-                        decoration: _fantasticInputDecoration('Area Code *'),
-                        items: areaCodeList
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                            .toList(),
-                        onChanged: (v) => setState(() => areaCode = v),
-                        validator: (v) => v == null ? 'Required' : null,
+                      isAreaCodeLoading
+                          ? const LinearProgressIndicator()
+                          : areaCodeError != null
+                              ? Text(areaCodeError!, style: const TextStyle(color: Colors.red))
+                              : DropdownButtonFormField<String>(
+                                  value: _dropdownValue(areaCode, areaCodeOptions),
+                                  decoration: _fantasticInputDecoration('Area Code *'),
+                                  items: areaCodeOptions
+                                      .map((e) => DropdownMenuItem<String>(
+                                            value: e['value']?.toString() ?? '',
+                                            child: Text(e['text']?.toString() ?? e['value']?.toString() ?? ''),
+                                          ))
+                                      .toList(),
+                                  onChanged: (v) => setState(() => areaCode = v ?? ''),
+                                  validator: (v) => v == null ? 'Required' : null,
+                                ),
+                      const SizedBox(height: SparshSpacing.sm),
+                      // Purchaser Code Dropdown with Search
+                      DropdownSearch<Map<String, dynamic>>(
+                        asyncItems: (String filter) async {
+                          if (areaCode == null || purchaserType == null) return <Map<String, dynamic>>[];
+                          setState(() => isPurchaserCodeLoading = true);
+                          try {
+                            final results = await _dsrService.getPurchaserCodes(
+                              areaCode: areaCode!,
+                              purchaserType: purchaserType!,
+                              searchText: filter,
+                            );
+                            setState(() => isPurchaserCodeLoading = false);
+                            print('PurchaserCodeOptions: ' + results.toString());
+                            return results.cast<Map<String, dynamic>>();
+                          } catch (e) {
+                            setState(() {
+                              isPurchaserCodeLoading = false;
+                              purchaserCodeError = e.toString();
+                            });
+                            return <Map<String, dynamic>>[];
+                          }
+                        },
+                        itemAsString: (item) => item?['text'] ?? '',
+                        onChanged: (item) {
+                          setState(() {
+                            purchaserCode = item?['value'];
+                            print('Selected purchaserCode: ' + (purchaserCode ?? 'null'));
+                            name = item?['name'];
+                            kycStatus = item?['kycStatus'];
+                            marketName = item?['marketName'];
+                            nameController.text = name ?? '';
+                            marketNameController.text = marketName ?? '';
+                            // Show Yes/No instead of Y/N
+                            if (kycStatus == 'Y' || kycStatus == 'N') {
+                              kycStatusController.text = kycStatusDisplayMap[kycStatus!] ?? kycStatus!;
+                            } else {
+                              kycStatusController.text = kycStatus ?? '';
+                            }
+                            // ...set other fields as needed
+                          });
+                        },
+                        selectedItem: purchaserCodeOptions.any((e) => e['value'] == purchaserCode)
+                          ? purchaserCodeOptions.firstWhere((e) => e['value'] == purchaserCode)
+                          : null,
+                        validator: (Map<String, dynamic>? v) => v == null ? 'Required' : null,
+                        dropdownBuilder: (context, selectedItem) => Text(selectedItem?['text'] ?? ''),
+                        popupProps: PopupProps.menu(
+                          showSearchBox: true,
+                          itemBuilder: (context, item, isSelected) => ListTile(
+                            title: Text(item['text'] ?? ''),
+                            subtitle: Text(item['address'] ?? ''),
+                          ),
+                        ),
+                        dropdownDecoratorProps: DropDownDecoratorProps(
+                          dropdownSearchDecoration: _fantasticInputDecoration('Purchaser Code *', icon: Icons.search),
+                        ),
+                        compareFn: (item, selectedItem) => item['value'] == selectedItem?['value'],
                       ),
+                      if (purchaserCodeError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Text(
+                            purchaserCodeError!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        decoration: _fantasticInputDecoration('Purchaser Code *', icon: Icons.search),
-                        onChanged: (v) => purchaserCode = v,
-                        validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                        controller: nameController,
+                        decoration: _fantasticInputDecoration('Name'),
+                        onChanged: (v) => name = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
-                      Row(
-                        children: [
-                          const Text('Name: ', style: SparshTypography.bodyBold),
-                          Text(name ?? '', style: SparshTypography.body),
-                        ],
-                      ),
-                      const SizedBox(height: SparshSpacing.sm),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: SparshTheme.primaryBlueAccent,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                            ),
-                          ),
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => const EditKycScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.edit),
-                          label: const Text('Edit KYC'),
-                        ),
-                      ),
-                      const SizedBox(height: SparshSpacing.sm),
-                      DropdownButtonFormField<String>(
-                        value: kycStatus,
-                        decoration: _fantasticInputDecoration('KYC Status'),
-                        items: ['Verified', 'Not Verified']
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                            .toList(),
-                        onChanged: null, // Disabled
-                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: SparshSpacing.sm),
                 // --- Report Date, Market Name, Display Contest, Pending Issues ---
-                const _SectionHeader(icon: Icons.event_note, label: 'Report & Market Details'),
+                const _SectionHeader(icon: Icons.event_note, label: 'Details'),
                 _FantasticCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      TextFormField(
+                        controller: kycStatusController,
+                        readOnly: true,
+                        decoration: _fantasticInputDecoration('KYC Status'),
+                      ),
+                      const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
                         decoration: _fantasticInputDecoration('Report Date *', icon: Icons.calendar_today),
                         readOnly: true,
@@ -330,51 +599,42 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
+                        controller: marketNameController,
                         decoration: _fantasticInputDecoration('Market Name (Location Or Road Name) *'),
                         onChanged: (v) => marketName = v,
                         validator: (v) => v == null || v.isEmpty ? 'Required' : null,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
+                      // Participation of Display Contest (vertical)
                       const Text('Participation of Display Contest *', style: SparshTypography.bodyBold),
-                      Row(
-                        children: [
-                          Radio<String>(
-                            value: 'Y',
-                            groupValue: displayContest,
-                            onChanged: (v) => setState(() => displayContest = v),
-                          ),
-                          const Text('Yes'),
-                          Radio<String>(
-                            value: 'N',
-                            groupValue: displayContest,
-                            onChanged: (v) => setState(() => displayContest = v),
-                          ),
-                          const Text('No'),
-                          Radio<String>(
-                            value: 'NA',
-                            groupValue: displayContest,
-                            onChanged: (v) => setState(() => displayContest = v),
-                          ),
-                          const Text('NA'),
-                        ],
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: displayContestOptions.map((opt) => Row(
+                          children: [
+                            Radio<String>(
+                              value: opt,
+                              groupValue: validDisplayContest,
+                              onChanged: (v) => setState(() => displayContest = v),
+                            ),
+                            Text(displayContestLabels[opt] ?? opt),
+                          ],
+                        )).toList(),
                       ),
                       const SizedBox(height: SparshSpacing.sm),
+                      // Any Pending Issues (vertical)
                       const Text('Any Pending Issues (Yes/No) *', style: SparshTypography.bodyBold),
-                      Row(
-                        children: [
-                          Radio<String>(
-                            value: 'Y',
-                            groupValue: pendingIssue,
-                            onChanged: (v) => setState(() => pendingIssue = v),
-                          ),
-                          const Text('Yes'),
-                          Radio<String>(
-                            value: 'N',
-                            groupValue: pendingIssue,
-                            onChanged: (v) => setState(() => pendingIssue = v),
-                          ),
-                          const Text('No'),
-                        ],
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: pendingIssueOptions.map((opt) => Row(
+                          children: [
+                            Radio<String>(
+                              value: opt,
+                              groupValue: pendingIssue == 'Y' || pendingIssue == 'N' ? pendingIssue : null,
+                              onChanged: (v) => setState(() => pendingIssue = v),
+                            ),
+                            Text(pendingIssueLabels[opt] ?? opt),
+                          ],
+                        )).toList(),
                       ),
                       if (pendingIssue == 'Y') ...[
                         DropdownButtonFormField<String>(
@@ -463,44 +723,56 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('WC (Industry Volume)', style: SparshTypography.bodyBold),
-                      Wrap(
-                        spacing: SparshSpacing.sm,
-                        children: brandsWc.keys.map((brand) {
-                          return Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Checkbox(
-                                value: brandsWc[brand],
-                                onChanged: (v) => setState(() => brandsWc[brand] = v ?? false),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.sm)),
-                              ),
-                              Text(brand),
-                            ],
-                          );
-                        }).toList(),
-                      ),
+                      isBrandLoading
+                          ? const LinearProgressIndicator()
+                          : brandError != null
+                              ? Text(brandError!, style: const TextStyle(color: Colors.red))
+                              : Wrap(
+                                  spacing: SparshSpacing.sm,
+                                  children: brandOptions
+                                      .map((brand) {
+                                    final code = brand['value']?.toString() ?? '';
+                                    return Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Checkbox(
+                                          value: brandsWc[code] ?? false,
+                                          onChanged: (v) => setState(() => brandsWc[code] = v ?? false),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.sm)),
+                                        ),
+                                        Text(brand['text']?.toString() ?? code),
+                                      ],
+                                    );
+                                  }).toList(),
+                                ),
                       TextFormField(
                         decoration: _fantasticInputDecoration('WC Industry Volume in (MT)'),
                         onChanged: (v) => slWcVolume = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       const Text('WCP (Industry Volume)', style: SparshTypography.bodyBold),
-                      Wrap(
-                        spacing: SparshSpacing.sm,
-                        children: brandsWcp.keys.map((brand) {
-                          return Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Checkbox(
-                                value: brandsWcp[brand],
-                                onChanged: (v) => setState(() => brandsWcp[brand] = v ?? false),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.sm)),
-                              ),
-                              Text(brand),
-                            ],
-                          );
-                        }).toList(),
-                      ),
+                      isBrandLoading
+                          ? const LinearProgressIndicator()
+                          : brandError != null
+                              ? Text(brandError!, style: const TextStyle(color: Colors.red))
+                              : Wrap(
+                                  spacing: SparshSpacing.sm,
+                                  children: brandOptions
+                                      .map((brand) {
+                                    final code = brand['value']?.toString() ?? '';
+                                    return Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Checkbox(
+                                          value: brandsWcp[code] ?? false,
+                                          onChanged: (v) => setState(() => brandsWcp[code] = v ?? false),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.sm)),
+                                        ),
+                                        Text(brand['text']?.toString() ?? code),
+                                      ],
+                                    );
+                                  }).toList(),
+                                ),
                       TextFormField(
                         decoration: _fantasticInputDecoration('WCP Industry Volume in (MT)'),
                         onChanged: (v) => slWpVolume = v,
@@ -564,6 +836,34 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                 ),
                 const SizedBox(height: SparshSpacing.sm),
                 // --- Current Month - BW ---
+                const _SectionHeader(icon: Icons.calendar_month, label: 'Last 3 Months Average - BW (in MT)'),
+                _FantasticCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextFormField(
+                        initialValue: currentMonthBW['BW_WC'],
+                        decoration: _fantasticInputDecoration('WC'),
+                        readOnly: true,
+                      ),
+                      const SizedBox(height: SparshSpacing.sm),
+                      TextFormField(
+                        initialValue: currentMonthBW['BW_WCP'],
+                        decoration: _fantasticInputDecoration('WCP'),
+                        readOnly: true,
+                      ),
+                      const SizedBox(height: SparshSpacing.sm),
+                      TextFormField(
+                        initialValue: currentMonthBW['BW_VAP'],
+                        decoration: _fantasticInputDecoration('VAP'),
+                        readOnly: true,
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: SparshSpacing.sm),
+                // --- Current Month - BW ---
                 const _SectionHeader(icon: Icons.calendar_month, label: 'Current Month - BW (in MT)'),
                 _FantasticCard(
                   child: Column(
@@ -589,6 +889,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     ],
                   ),
                 ),
+
                 const SizedBox(height: SparshSpacing.sm),
                 // --- Order Booked in call/e meet (Dynamic List) ---
                 const _SectionHeader(icon: Icons.shopping_cart, label: 'Order Booked in call/e meet'),
@@ -612,32 +913,59 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         itemBuilder: (context, idx) {
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4.0),
-                            child: Row(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('Product'),
-                                    onChanged: (v) => productList[idx]['product'] = v,
-                                  ),
+                                isProductCategoryLoading
+                                    ? const LinearProgressIndicator()
+                                    : productCategoryError != null
+                                        ? Text(productCategoryError!, style: const TextStyle(color: Colors.red))
+                                        : DropdownButtonFormField<String>(
+                                            value: _dropdownValue(productList[idx]['category'], productCategoryOptions),
+                                            decoration: _fantasticInputDecoration('Product Category'),
+                                            items: productCategoryOptions
+                                                .map((e) => DropdownMenuItem<String>(
+                                                      value: e['Code']?.toString() ?? '',
+                                                      child: Text('${e['Description'] ?? e['Code'] ?? ''} (${e['Code'] ?? ''})'),
+                                                    ))
+                                                .toList(),
+                                            onChanged: (v) async {
+                                              setState(() => productList[idx]['category'] = v ?? '');
+                                              if (v != null && v.isNotEmpty) {
+                                                await _fetchProductsForCategory(v);
+                                              }
+                                            },
+                                          ),
+                                const SizedBox(height: SparshSpacing.xs),
+                                productList[idx]['category'] == null
+                                    ? const SizedBox()
+                                    : isProductLoading[productList[idx]['category']] == true
+                                        ? const LinearProgressIndicator()
+                                        : productError[productList[idx]['category']] != null
+                                            ? Text(productError[productList[idx]['category']]!, style: const TextStyle(color: Colors.red))
+                                            : DropdownButtonFormField<String>(
+                                                value: _dropdownValue(productList[idx]['sku'], productsByCategory[productList[idx]['category']] ?? []),
+                                                decoration: _fantasticInputDecoration('SKU'),
+                                                items: (productsByCategory[productList[idx]['category']] ?? [])
+                                                    .map((e) => DropdownMenuItem<String>(
+                                                          value: e['Code']?.toString() ?? '',
+                                                          child: Text('${e['Description'] ?? e['Code'] ?? ''} (${e['Code'] ?? ''})'),
+                                                        ))
+                                                    .toList(),
+                                                onChanged: (v) => setState(() => productList[idx]['sku'] = v ?? ''),
+                                              ),
+                                const SizedBox(height: SparshSpacing.xs),
+                                TextFormField(
+                                  decoration: _fantasticInputDecoration('Qty'),
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (v) => productList[idx]['qty'] = v,
                                 ),
-                                const SizedBox(width: SparshSpacing.xs),
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('SKU'),
-                                    onChanged: (v) => productList[idx]['sku'] = v,
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: SparshTheme.errorRed),
+                                    onPressed: () => removeProductRow(idx),
                                   ),
-                                ),
-                                const SizedBox(width: SparshSpacing.xs),
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('Qty'),
-                                    keyboardType: TextInputType.number,
-                                    onChanged: (v) => productList[idx]['qty'] = v,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: SparshTheme.errorRed),
-                                  onPressed: () => removeProductRow(idx),
                                 ),
                               ],
                             ),
@@ -670,40 +998,47 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         itemBuilder: (context, idx) {
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4.0),
-                            child: Row(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('Brand'),
-                                    onChanged: (v) => marketSkuList[idx]['brand'] = v,
-                                  ),
+                                isBrandLoading
+                                    ? const LinearProgressIndicator()
+                                    : brandError != null
+                                        ? Text(brandError!, style: const TextStyle(color: Colors.red))
+                                        : DropdownButtonFormField<String>(
+                                            value: _dropdownValue(marketSkuList[idx]['brand'], brandOptions),
+                                            decoration: _fantasticInputDecoration('Brand'),
+                                            items: brandOptions
+                                                .map((e) => DropdownMenuItem<String>(
+                                                      value: e['value']?.toString() ?? '',
+                                                      child: Text('${e['text'] ?? e['value'] ?? ''} (${e['value'] ?? ''})'),
+                                                    ))
+                                                .toList(),
+                                            onChanged: (v) => setState(() => marketSkuList[idx]['brand'] = v ?? ''),
+                                          ),
+                                const SizedBox(height: SparshSpacing.xs),
+                                TextFormField(
+                                  decoration: _fantasticInputDecoration('Product'),
+                                  onChanged: (v) => marketSkuList[idx]['product'] = v,
                                 ),
-                                const SizedBox(width: SparshSpacing.xs),
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('Product'),
-                                    onChanged: (v) => marketSkuList[idx]['product'] = v,
-                                  ),
+                                const SizedBox(height: SparshSpacing.xs),
+                                TextFormField(
+                                  decoration: _fantasticInputDecoration('Price - B'),
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (v) => marketSkuList[idx]['priceB'] = v,
                                 ),
-                                const SizedBox(width: SparshSpacing.xs),
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('Price - B'),
-                                    keyboardType: TextInputType.number,
-                                    onChanged: (v) => marketSkuList[idx]['priceB'] = v,
-                                  ),
+                                const SizedBox(height: SparshSpacing.xs),
+                                TextFormField(
+                                  decoration: _fantasticInputDecoration('Price - C'),
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (v) => marketSkuList[idx]['priceC'] = v,
                                 ),
-                                const SizedBox(width: SparshSpacing.xs),
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('Price - C'),
-                                    keyboardType: TextInputType.number,
-                                    onChanged: (v) => marketSkuList[idx]['priceC'] = v,
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: SparshTheme.errorRed),
+                                    onPressed: () => removeMarketSkuRow(idx),
                                   ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: SparshTheme.errorRed),
-                                  onPressed: () => removeMarketSkuRow(idx),
                                 ),
                               ],
                             ),
@@ -736,25 +1071,36 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         itemBuilder: (context, idx) {
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4.0),
-                            child: Row(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('Gift Type'),
-                                    onChanged: (v) => giftList[idx]['giftType'] = v,
-                                  ),
+                                isGiftTypeLoading
+                                    ? const LinearProgressIndicator()
+                                    : giftTypeError != null
+                                        ? Text(giftTypeError!, style: const TextStyle(color: Colors.red))
+                                        : DropdownButtonFormField<String>(
+                                            value: _dropdownValue(giftList[idx]['giftType'], giftTypeOptions),
+                                            decoration: _fantasticInputDecoration('Gift Type'),
+                                            items: giftTypeOptions
+                                                .map((e) => DropdownMenuItem<String>(
+                                                      value: e['value']?.toString() ?? '',
+                                                      child: Text('${e['text'] ?? e['value'] ?? ''} (${e['value'] ?? ''})'),
+                                                    ))
+                                                .toList(),
+                                            onChanged: (v) => setState(() => giftList[idx]['giftType'] = v ?? ''),
+                                          ),
+                                const SizedBox(height: SparshSpacing.xs),
+                                TextFormField(
+                                  decoration: _fantasticInputDecoration('Qty'),
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (v) => giftList[idx]['qty'] = v,
                                 ),
-                                const SizedBox(width: SparshSpacing.xs),
-                                Expanded(
-                                  child: TextFormField(
-                                    decoration: _fantasticInputDecoration('Qty'),
-                                    keyboardType: TextInputType.number,
-                                    onChanged: (v) => giftList[idx]['qty'] = v,
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: SparshTheme.errorRed),
+                                    onPressed: () => removeGiftRow(idx),
                                   ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: SparshTheme.errorRed),
-                                  onPressed: () => removeGiftRow(idx),
                                 ),
                               ],
                             ),
@@ -817,14 +1163,21 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         onChanged: (v) => remarks = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
-                      DropdownButtonFormField<String>(
-                        value: cityReason,
-                        decoration: _fantasticInputDecoration('Select Reason'),
-                        items: cityReasons
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                            .toList(),
-                        onChanged: (v) => setState(() => cityReason = v),
-                      ),
+                      isExceptionReasonLoading
+                          ? const LinearProgressIndicator()
+                          : exceptionReasonError != null
+                              ? Text(exceptionReasonError!, style: const TextStyle(color: Colors.red))
+                              : DropdownButtonFormField<String>(
+                                  value: _dropdownValue(cityReason, exceptionReasonOptions),
+                                  decoration: _fantasticInputDecoration('Select Reason'),
+                                  items: exceptionReasonOptions
+                                      .map((e) => DropdownMenuItem<String>(
+                                            value: e['value']?.toString() ?? '',
+                                            child: Text('${e['text'] ?? e['value'] ?? ''} (${e['value'] ?? ''})'),
+                                          ))
+                                      .toList(),
+                                  onChanged: (v) => setState(() => cityReason = v ?? ''),
+                                ),
                     ],
                   ),
                 ),
@@ -916,16 +1269,10 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.lg)),
                         padding: const EdgeInsets.symmetric(vertical: SparshSpacing.lg),
                       ),
-                      onPressed: () {
-                        if (_formKey.currentState!.validate()) {
-                          // TODO: Handle submit & exit
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Submitted & Exit (mock)')),
-                          );
-                        }
-                      },
+                      onPressed: isSubmitting ? null : _submitForm,
                       child: const Text('Submit & Exit', style: SparshTypography.bodyBold),
                     ),
+                    if (isSubmitting) const LinearProgressIndicator(),
                     const SizedBox(height: SparshSpacing.sm),
                     OutlinedButton(
                       style: OutlinedButton.styleFrom(
@@ -960,6 +1307,7 @@ class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.icon, required this.label});
   @override
   Widget build(BuildContext context) {
+    double fontSize = MediaQuery.of(context).size.width < 350 ? 14 : 16;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4.0, top: SparshSpacing.md),
       child: Row(
@@ -968,7 +1316,7 @@ class _SectionHeader extends StatelessWidget {
           const SizedBox(width: SparshSpacing.xs),
           Text(
             label,
-            style: SparshTypography.heading2,
+            style: SparshTypography.heading5.copyWith(fontSize: fontSize),
           ),
         ],
       ),
