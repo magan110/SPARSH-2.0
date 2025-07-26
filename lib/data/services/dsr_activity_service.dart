@@ -201,18 +201,34 @@ class DSRActivityService {
     String docuNumb,
     String loginId,
   ) async {
-    // URL encode the document number to handle forward slashes
-    final encodedDocuNumb = Uri.encodeComponent(docuNumb);
-    final response = await http.get(
-      Uri.parse(
-        '$baseUrl/api/DSRActivity/GetDSRForEdit/$encodedDocuNumb/$loginId',
-      ),
-    );
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return Map<String, dynamic>.from(data['data'] ?? {});
-    } else {
-      throw Exception('Failed to load DSR details for editing');
+    try {
+      // URL encode the document number to handle forward slashes
+      final encodedDocuNumb = Uri.encodeComponent(docuNumb);
+      final response = await http.get(
+        Uri.parse(
+          '$baseUrl/api/DSRActivity/GetDSRForEdit/$encodedDocuNumb/$loginId',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+
+        // Check if the API response indicates success
+        if (responseData['success'] == true) {
+          return Map<String, dynamic>.from(responseData);
+        } else {
+          throw Exception(
+            responseData['message'] ?? 'Failed to fetch DSR details',
+          );
+        }
+      } else {
+        throw Exception(
+          'HTTP ${response.statusCode}: Failed to load DSR details for editing',
+        );
+      }
+    } catch (e) {
+      print('Error in getDSRForEdit: $e');
+      throw Exception('Failed to load DSR details: $e');
     }
   }
 

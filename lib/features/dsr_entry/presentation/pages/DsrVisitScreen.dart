@@ -51,6 +51,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
 
   // Dynamic lists
   List<Map<String, String>> productList = [];
+  List<TextEditingController> productQtyControllers = [];
   List<Map<String, String>> giftList = [];
   List<Map<String, String>> marketSkuList = [];
 
@@ -132,6 +133,38 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
   final TextEditingController marketNameController = TextEditingController();
   final TextEditingController nameController = TextEditingController();
   final TextEditingController kycStatusController = TextEditingController();
+  final TextEditingController wcEnrolmentController = TextEditingController();
+  final TextEditingController wcpEnrolmentController = TextEditingController();
+  final TextEditingController vapEnrolmentController = TextEditingController();
+  final TextEditingController wcStockController = TextEditingController();
+  final TextEditingController wcpStockController = TextEditingController();
+  final TextEditingController vapStockController = TextEditingController();
+  final TextEditingController slWcVolumeController = TextEditingController();
+  final TextEditingController slWpVolumeController = TextEditingController();
+  final TextEditingController jkWcController = TextEditingController();
+  final TextEditingController jkWcpController = TextEditingController();
+  final TextEditingController asWcController = TextEditingController();
+  final TextEditingController asWcpController = TextEditingController();
+  final TextEditingController otWcController = TextEditingController();
+  final TextEditingController otWcpController = TextEditingController();
+  final TextEditingController bwWcController = TextEditingController();
+  final TextEditingController bwWcpController = TextEditingController();
+  final TextEditingController bwVapController = TextEditingController();
+  final TextEditingController currentWcController = TextEditingController();
+  final TextEditingController currentWcpController = TextEditingController();
+  final TextEditingController currentVapController = TextEditingController();
+
+  // Market SKU controllers for dynamic list
+  List<TextEditingController> marketSkuProductControllers = [];
+  List<TextEditingController> marketSkuPriceBControllers = [];
+  List<TextEditingController> marketSkuPriceCControllers = [];
+
+  // Gift distribution controllers for dynamic list
+  List<TextEditingController> giftQtyControllers = [];
+  List<TextEditingController> giftNarationControllers = [];
+
+  // Remarks controller
+  final TextEditingController remarksController = TextEditingController();
 
   // Location related variables
 
@@ -158,12 +191,15 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
   void addProductRow() {
     setState(() {
       productList.add({'category': '', 'sku': '', 'qty': ''});
+      productQtyControllers.add(TextEditingController());
     });
   }
 
   void removeProductRow(int index) {
     setState(() {
       productList.removeAt(index);
+      productQtyControllers[index].dispose();
+      productQtyControllers.removeAt(index);
     });
   }
 
@@ -171,12 +207,26 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
   void addGiftRow() {
     setState(() {
       giftList.add({'giftType': '', 'qty': '', 'naration': ''});
+
+      // Create controllers for the new row
+      giftQtyControllers.add(TextEditingController());
+      giftNarationControllers.add(TextEditingController());
     });
   }
 
   void removeGiftRow(int index) {
     setState(() {
       giftList.removeAt(index);
+
+      // Dispose controllers for the removed row
+      if (index < giftQtyControllers.length) {
+        giftQtyControllers[index].dispose();
+        giftQtyControllers.removeAt(index);
+      }
+      if (index < giftNarationControllers.length) {
+        giftNarationControllers[index].dispose();
+        giftNarationControllers.removeAt(index);
+      }
     });
   }
 
@@ -189,12 +239,31 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
         'priceB': '',
         'priceC': '',
       });
+
+      // Create controllers for the new row
+      marketSkuProductControllers.add(TextEditingController());
+      marketSkuPriceBControllers.add(TextEditingController());
+      marketSkuPriceCControllers.add(TextEditingController());
     });
   }
 
   void removeMarketSkuRow(int index) {
     setState(() {
       marketSkuList.removeAt(index);
+
+      // Dispose controllers for the removed row
+      if (index < marketSkuProductControllers.length) {
+        marketSkuProductControllers[index].dispose();
+        marketSkuProductControllers.removeAt(index);
+      }
+      if (index < marketSkuPriceBControllers.length) {
+        marketSkuPriceBControllers[index].dispose();
+        marketSkuPriceBControllers.removeAt(index);
+      }
+      if (index < marketSkuPriceCControllers.length) {
+        marketSkuPriceCControllers[index].dispose();
+        marketSkuPriceCControllers.removeAt(index);
+      }
     });
   }
 
@@ -238,12 +307,102 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
       marketNameController.text = marketName ?? '';
       nameController.text = name ?? '';
       kycStatusController.text = kycStatus ?? '';
+      wcEnrolmentController.text = wcEnrolment ?? '';
+      wcpEnrolmentController.text = wcpEnrolment ?? '';
+      vapEnrolmentController.text = vapEnrolment ?? '';
+      wcStockController.text = wcStock ?? '';
+      wcpStockController.text = wcpStock ?? '';
+      vapStockController.text = vapStock ?? '';
+      slWcVolumeController.text = slWcVolume ?? '';
+      slWpVolumeController.text = slWpVolume ?? '';
+      jkWcController.text = last3MonthsAvg['JK_WC'] ?? '';
+      jkWcpController.text = last3MonthsAvg['JK_WCP'] ?? '';
+      asWcController.text = last3MonthsAvg['AS_WC'] ?? '';
+      asWcpController.text = last3MonthsAvg['AS_WCP'] ?? '';
+      otWcController.text = last3MonthsAvg['OT_WC'] ?? '';
+      otWcpController.text = last3MonthsAvg['OT_WCP'] ?? '';
+      bwWcController.text = last3MonthBW['BW_WC'] ?? '';
+      bwWcpController.text = last3MonthBW['BW_WCP'] ?? '';
+      bwVapController.text = last3MonthBW['BW_VAP'] ?? '';
+      currentWcController.text = currentMonthBW['BW_WC'] ?? '';
+      currentWcpController.text = currentMonthBW['BW_WCP'] ?? '';
+      currentVapController.text = currentMonthBW['BW_VAP'] ?? '';
     }
+  }
+
+  @override
+  void dispose() {
+    // Dispose all the individual field controllers
+    marketNameController.dispose();
+    nameController.dispose();
+    kycStatusController.dispose();
+    wcEnrolmentController.dispose();
+    wcpEnrolmentController.dispose();
+    vapEnrolmentController.dispose();
+    wcStockController.dispose();
+    wcpStockController.dispose();
+    vapStockController.dispose();
+    slWcVolumeController.dispose();
+    slWpVolumeController.dispose();
+    jkWcController.dispose();
+    jkWcpController.dispose();
+    asWcController.dispose();
+    asWcpController.dispose();
+    otWcController.dispose();
+    otWcpController.dispose();
+    bwWcController.dispose();
+    bwWcpController.dispose();
+    bwVapController.dispose();
+    currentWcController.dispose();
+    currentWcpController.dispose();
+    currentVapController.dispose();
+
+    // Dispose product quantity controllers
+    for (var controller in productQtyControllers) {
+      controller.dispose();
+    }
+    productQtyControllers.clear();
+
+    // Dispose market SKU controllers
+    for (var controller in marketSkuProductControllers) {
+      controller.dispose();
+    }
+    marketSkuProductControllers.clear();
+    for (var controller in marketSkuPriceBControllers) {
+      controller.dispose();
+    }
+    marketSkuPriceBControllers.clear();
+    for (var controller in marketSkuPriceCControllers) {
+      controller.dispose();
+    }
+    marketSkuPriceCControllers.clear();
+
+    // Dispose gift distribution controllers
+    for (var controller in giftQtyControllers) {
+      controller.dispose();
+    }
+    giftQtyControllers.clear();
+    for (var controller in giftNarationControllers) {
+      controller.dispose();
+    }
+    giftNarationControllers.clear();
+
+    // Dispose remarks controller
+    remarksController.dispose();
+
+    super.dispose();
   }
 
   Future<void> _fetchDSRDetailsForEdit(String docuNumb) async {
     try {
-      final data = await _dsrService.getDSRForEdit(docuNumb, _loginId);
+      final response = await _dsrService.getDSRForEdit(docuNumb, _loginId);
+
+      // Check if response is successful
+      if (response['success'] != true) {
+        throw Exception(response['message'] ?? 'Failed to fetch DSR details');
+      }
+
+      final data = response['data'];
       final header = data['header'];
       final enrolment = data['enrolment'];
       final currentMonthBWData = data['currentMonthBW'];
@@ -252,21 +411,32 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
 
       setState(() {
         // Header details
-        documentNo = header['docuNumb'];
-        reportDate = header['docuDate'];
-        orderExecutionDate = header['ordExDat'];
-        purchaserType = header['cusRtlFl'];
-        areaCode = header['areaCode'];
-        purchaserCode = header['cusRtlCd'];
-        marketName = header['mrktName'];
-        displayContest = header['prtDsCnt'];
-        pendingIssue = header['pendIsue'];
-        pendingIssueDetail = header['pndIsuDt'];
-        issueDetail = header['isuDetal'];
-        remarks = header['dsrRem05'];
-        slWcVolume = header['slWcVlum'];
-        slWpVolume = header['slWpVlum'];
-        cityReason = header['cityName']; // Map cityName to cityReason
+        documentNo = header['docuNumb']?.toString() ?? '';
+        reportDate = header['docuDate']?.toString() ?? '';
+        orderExecutionDate = header['ordExDat']?.toString() ?? '';
+        purchaserType = header['cusRtlFl']?.toString() ?? '';
+        areaCode = header['areaCode']?.toString() ?? '';
+        purchaserCode = header['cusRtlCd']?.toString() ?? '';
+        marketName = header['mrktName']?.toString() ?? '';
+        displayContest = header['prtDsCnt']?.toString() ?? '';
+        pendingIssue = header['pendIsue']?.toString() ?? '';
+        pendingIssueDetail = header['pndIsuDt']?.toString() ?? '';
+        issueDetail = header['isuDetal']?.toString() ?? '';
+        remarks = header['dsrRem05']?.toString() ?? '';
+        slWcVolume = header['slWcVlum']?.toString() ?? '';
+        slWpVolume = header['slWpVlum']?.toString() ?? '';
+
+        // Update controllers
+        remarksController.text = remarks ?? '';
+
+        // Update industry volume controllers
+        slWcVolumeController.text = slWcVolume ?? '';
+        slWpVolumeController.text = slWpVolume ?? '';
+
+        // Map cityName to dropdown options - the API returns codes, we need to handle this properly
+        final cityNameValue = header['cityName']?.toString() ?? '';
+        // For now, use the raw value and let the dropdown handle validation
+        cityReason = cityNameValue;
 
         // Tile Adhesive fields
         final isTilRtlValue = header['isTilRtl']?.toString();
@@ -277,93 +447,167 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
         } else {
           tileAdhesiveSeller = null;
         }
-        tileAdhesiveStock = header['tileStck']?.toString();
+        tileAdhesiveStock = header['tileStck']?.toString() ?? '';
 
         // Customer details
-        name = customer['name'];
-        kycStatus = customer['kycStatus'];
-        marketNameController.text = marketName ?? '';
-        nameController.text = name ?? '';
-        // Display Y/N as Yes/No for KYC Status
-        if (kycStatus == 'Y') {
-          kycStatusController.text = 'Yes';
-        } else if (kycStatus == 'N') {
-          kycStatusController.text = 'No';
-        } else {
-          kycStatusController.text = kycStatus ?? '';
+        if (customer != null) {
+          name = customer['name']?.toString() ?? '';
+          kycStatus = customer['kycStatus']?.toString() ?? '';
+          nameController.text = name ?? '';
+
+          // Update market name from customer if not already set from header
+          if (marketName?.isEmpty ?? true) {
+            marketName = customer['marketName']?.toString() ?? '';
+          }
+          marketNameController.text = marketName ?? '';
+
+          // Display Y/N as Yes/No for KYC Status
+          if (kycStatus == 'Y') {
+            kycStatusController.text = 'Yes';
+          } else if (kycStatus == 'N') {
+            kycStatusController.text = 'No';
+          } else {
+            kycStatusController.text = kycStatus ?? '';
+          }
         }
 
-        // Enrolment Slab - map from the JSON structure
-        wcEnrolment = enrolment['wcErlSlb']?.toString();
-        wcpEnrolment = enrolment['wpErlSlb']?.toString();
-        vapEnrolment = enrolment['vpErlSlb']?.toString();
+        // Enrolment Slab - map from the enrolment structure
+        if (enrolment != null) {
+          wcEnrolment = enrolment['wcErlSlb']?.toString() ?? '';
+          wcpEnrolment = enrolment['wpErlSlb']?.toString() ?? '';
+          vapEnrolment = enrolment['vpErlSlb']?.toString() ?? '';
 
-        // BW Stocks Availability - map from the JSON structure
-        wcStock =
-            currentMonthBWData['stockAvailability']['wcStock']?.toString();
-        wcpStock =
-            currentMonthBWData['stockAvailability']['wcpStock']?.toString();
-        vapStock =
-            currentMonthBWData['stockAvailability']['vapStock']?.toString();
+          // Update controllers
+          wcEnrolmentController.text = wcEnrolment ?? '';
+          wcpEnrolmentController.text = wcpEnrolment ?? '';
+          vapEnrolmentController.text = vapEnrolment ?? '';
+        }
+
+        // BW Stocks Availability - map from the stockAvailability in currentMonthBW
+        if (currentMonthBWData != null &&
+            currentMonthBWData['stockAvailability'] != null) {
+          final stockData = currentMonthBWData['stockAvailability'];
+          wcStock = stockData['wcStock']?.toString() ?? '';
+          wcpStock = stockData['wcpStock']?.toString() ?? '';
+          vapStock = stockData['vapStock']?.toString() ?? '';
+
+          // Update controllers
+          wcStockController.text = wcStock ?? '';
+          wcpStockController.text = wcpStock ?? '';
+          vapStockController.text = vapStock ?? '';
+        }
 
         // Brands Selling Checkboxes - reset first, then set based on API data
         brandsWc.updateAll((key, value) => false);
         brandsWcp.updateAll((key, value) => false);
 
-        final List<dynamic> brndSlWc = header['brndSlWc'] ?? [];
-        for (String brand in brndSlWc) {
-          if (brandsWc.containsKey(brand)) {
-            brandsWc[brand] = true;
+        // Handle brand arrays from header - they are already arrays in the response
+        if (header['brndSlWc'] != null) {
+          final List<dynamic> brndSlWc =
+              header['brndSlWc'] is List
+                  ? header['brndSlWc']
+                  : [header['brndSlWc']];
+          for (var brand in brndSlWc) {
+            final brandStr = brand.toString().trim();
+            if (brandsWc.containsKey(brandStr)) {
+              brandsWc[brandStr] = true;
+            }
           }
         }
 
-        final List<dynamic> brndSlWp = header['brndSlWp'] ?? [];
-        for (String brand in brndSlWp) {
-          if (brandsWcp.containsKey(brand)) {
-            brandsWcp[brand] = true;
+        if (header['brndSlWp'] != null) {
+          final List<dynamic> brndSlWp =
+              header['brndSlWp'] is List
+                  ? header['brndSlWp']
+                  : [header['brndSlWp']];
+          for (var brand in brndSlWp) {
+            final brandStr = brand.toString().trim();
+            if (brandsWcp.containsKey(brandStr)) {
+              brandsWcp[brandStr] = true;
+            }
           }
         }
 
-        // Last 3 Months Average (Competitors) - map from the JSON structure
-        last3MonthsAvg['JK_WC'] =
-            last3MonthsAverageBW['competitors']['jk']['wc']?.toString() ?? '';
-        last3MonthsAvg['JK_WCP'] =
-            last3MonthsAverageBW['competitors']['jk']['wcp']?.toString() ?? '';
-        last3MonthsAvg['AS_WC'] =
-            last3MonthsAverageBW['competitors']['asian']['wc']?.toString() ??
-            '';
-        last3MonthsAvg['AS_WCP'] =
-            last3MonthsAverageBW['competitors']['asian']['wcp']?.toString() ??
-            '';
-        last3MonthsAvg['OT_WC'] =
-            last3MonthsAverageBW['competitors']['others']['wc']?.toString() ??
-            '';
-        last3MonthsAvg['OT_WCP'] =
-            last3MonthsAverageBW['competitors']['others']['wcp']?.toString() ??
-            '';
+        // Last 3 Months Average (Competitors) - map from the competitors data
+        if (last3MonthsAverageBW != null &&
+            last3MonthsAverageBW['competitors'] != null) {
+          final competitors = last3MonthsAverageBW['competitors'];
 
-        // Current Month - BW - map from the JSON structure
-        currentMonthBW['BW_WC'] =
-            currentMonthBWData['wcCurrent']?.toString() ?? '';
-        currentMonthBW['BW_WCP'] =
-            currentMonthBWData['wcpCurrent']?.toString() ?? '';
-        currentMonthBW['BW_VAP'] =
-            currentMonthBWData['vapCurrent']?.toString() ?? '';
+          if (competitors['jk'] != null) {
+            last3MonthsAvg['JK_WC'] = competitors['jk']['wc']?.toString() ?? '';
+            last3MonthsAvg['JK_WCP'] =
+                competitors['jk']['wcp']?.toString() ?? '';
+            jkWcController.text = competitors['jk']['wc']?.toString() ?? '';
+            jkWcpController.text = competitors['jk']['wcp']?.toString() ?? '';
+          }
 
-        // Last 3 Months Average - BW - map from the JSON structure
-        last3MonthBW['BW_WC'] =
-            last3MonthsAverageBW['wcAverage']?.toString() ?? '';
-        last3MonthBW['BW_WCP'] =
-            last3MonthsAverageBW['wcpAverage']?.toString() ?? '';
-        last3MonthBW['BW_VAP'] =
-            last3MonthsAverageBW['vapAverage']?.toString() ?? '';
+          if (competitors['asian'] != null) {
+            last3MonthsAvg['AS_WC'] =
+                competitors['asian']['wc']?.toString() ?? '';
+            last3MonthsAvg['AS_WCP'] =
+                competitors['asian']['wcp']?.toString() ?? '';
+            asWcController.text = competitors['asian']['wc']?.toString() ?? '';
+            asWcpController.text =
+                competitors['asian']['wcp']?.toString() ?? '';
+          }
 
-        // Order Booked in call/e meet (Products) - map from the JSON structure
+          if (competitors['others'] != null) {
+            last3MonthsAvg['OT_WC'] =
+                competitors['others']['wc']?.toString() ?? '';
+            last3MonthsAvg['OT_WCP'] =
+                competitors['others']['wcp']?.toString() ?? '';
+            otWcController.text = competitors['others']['wc']?.toString() ?? '';
+            otWcpController.text =
+                competitors['others']['wcp']?.toString() ?? '';
+          }
+        }
+
+        // Current Month - BW - map from the currentMonthBW data
+        if (currentMonthBWData != null) {
+          currentMonthBW['BW_WC'] =
+              currentMonthBWData['wcCurrent']?.toString() ?? '';
+          currentMonthBW['BW_WCP'] =
+              currentMonthBWData['wcpCurrent']?.toString() ?? '';
+          currentMonthBW['BW_VAP'] =
+              currentMonthBWData['vapCurrent']?.toString() ?? '';
+          currentWcController.text =
+              currentMonthBWData['wcCurrent']?.toString() ?? '';
+          currentWcpController.text =
+              currentMonthBWData['wcpCurrent']?.toString() ?? '';
+          currentVapController.text =
+              currentMonthBWData['vapCurrent']?.toString() ?? '';
+        }
+
+        // Last 3 Months Average - BW - map from the last3MonthsAverageBW data
+        if (last3MonthsAverageBW != null) {
+          last3MonthBW['BW_WC'] =
+              last3MonthsAverageBW['wcAverage']?.toString() ?? '';
+          last3MonthBW['BW_WCP'] =
+              last3MonthsAverageBW['wcpAverage']?.toString() ?? '';
+          last3MonthBW['BW_VAP'] =
+              last3MonthsAverageBW['vapAverage']?.toString() ?? '';
+          bwWcController.text =
+              last3MonthsAverageBW['wcAverage']?.toString() ?? '';
+          bwWcpController.text =
+              last3MonthsAverageBW['wcpAverage']?.toString() ?? '';
+          bwVapController.text =
+              last3MonthsAverageBW['vapAverage']?.toString() ?? '';
+        }
+
+        // Order Booked in call/e meet (Products) - map from orderBookedInCallMeet
         productList = [];
+        // Clear existing controllers
+        for (var controller in productQtyControllers) {
+          controller.dispose();
+        }
+        productQtyControllers.clear();
+
         if (data['orderBookedInCallMeet'] != null &&
             data['orderBookedInCallMeet']['orders'] != null) {
+          final orders =
+              data['orderBookedInCallMeet']['orders'] as List<dynamic>;
           productList =
-              (data['orderBookedInCallMeet']['orders'] as List<dynamic>)
+              orders
                   .map(
                     (e) => {
                       'category': e['repoCatg']?.toString() ?? '',
@@ -372,16 +616,39 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     },
                   )
                   .toList();
+
+          // Create controllers for each product and set their values
+          for (var product in productList) {
+            final controller = TextEditingController();
+            controller.text = product['qty'] ?? '';
+            productQtyControllers.add(controller);
+          }
         }
         if (productList.isEmpty) addProductRow(); // Ensure at least one row
 
-        // Market -- WCP (Highest selling SKU) - map from the JSON structure
+        // Market -- WCP (Highest selling SKU) - map from marketWCPHighestSellingSKU
         marketSkuList = [];
+        // Clear existing controllers
+        for (var controller in marketSkuProductControllers) {
+          controller.dispose();
+        }
+        marketSkuProductControllers.clear();
+        for (var controller in marketSkuPriceBControllers) {
+          controller.dispose();
+        }
+        marketSkuPriceBControllers.clear();
+        for (var controller in marketSkuPriceCControllers) {
+          controller.dispose();
+        }
+        marketSkuPriceCControllers.clear();
+
         if (data['marketWCPHighestSellingSKU'] != null &&
             data['marketWCPHighestSellingSKU']['marketIntelligence'] != null) {
+          final marketIntell =
+              data['marketWCPHighestSellingSKU']['marketIntelligence']
+                  as List<dynamic>;
           marketSkuList =
-              (data['marketWCPHighestSellingSKU']['marketIntelligence']
-                      as List<dynamic>)
+              marketIntell
                   .map(
                     (e) => {
                       'brand': e['brandName']?.toString() ?? '',
@@ -391,15 +658,41 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     },
                   )
                   .toList();
+
+          // Create controllers for each market SKU and set their values
+          for (var marketSku in marketSkuList) {
+            final productController = TextEditingController();
+            productController.text = marketSku['product'] ?? '';
+            marketSkuProductControllers.add(productController);
+
+            final priceBController = TextEditingController();
+            priceBController.text = marketSku['priceB'] ?? '';
+            marketSkuPriceBControllers.add(priceBController);
+
+            final priceCController = TextEditingController();
+            priceCController.text = marketSku['priceC'] ?? '';
+            marketSkuPriceCControllers.add(priceCController);
+          }
         }
         if (marketSkuList.isEmpty) addMarketSkuRow(); // Ensure at least one row
 
-        // Gift Distribution - map from the JSON structure
+        // Gift Distribution - map from giftDistribution
         giftList = [];
+        // Clear existing controllers
+        for (var controller in giftQtyControllers) {
+          controller.dispose();
+        }
+        giftQtyControllers.clear();
+        for (var controller in giftNarationControllers) {
+          controller.dispose();
+        }
+        giftNarationControllers.clear();
+
         if (data['giftDistribution'] != null &&
             data['giftDistribution']['gifts'] != null) {
+          final gifts = data['giftDistribution']['gifts'] as List<dynamic>;
           giftList =
-              (data['giftDistribution']['gifts'] as List<dynamic>)
+              gifts
                   .map(
                     (e) => {
                       'giftType': e['mrtlCode']?.toString().trim() ?? '',
@@ -408,10 +701,48 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     },
                   )
                   .toList();
+
+          // Create controllers for each gift and set their values
+          for (var gift in giftList) {
+            final qtyController = TextEditingController();
+            qtyController.text = gift['qty'] ?? '';
+            giftQtyControllers.add(qtyController);
+
+            final narationController = TextEditingController();
+            narationController.text = gift['naration'] ?? '';
+            giftNarationControllers.add(narationController);
+          }
         }
         if (giftList.isEmpty) addGiftRow(); // Ensure at least one row
+
+        print('DSR details loaded successfully for document: $docuNumb');
+        print('Loaded data summary:');
+        print('- Header: ${header != null}');
+        print('- Customer: ${customer?['name']} (${customer?['code']})');
+        print('- Products: ${productList.length}');
+        print('- Market SKUs: ${marketSkuList.length}');
+        print('- Gifts: ${giftList.length}');
+        print(
+          '- Brands WC: ${brandsWc.entries.where((e) => e.value).map((e) => e.key).toList()}',
+        );
+        print(
+          '- Brands WCP: ${brandsWcp.entries.where((e) => e.value).map((e) => e.key).toList()}',
+        );
       });
+
+      // Fetch products for each category that has data in productList
+      for (final product in productList) {
+        final category = product['category'];
+        if (category != null && category.isNotEmpty) {
+          try {
+            await _fetchProductsForCategory(category);
+          } catch (e) {
+            print('Error fetching products for category $category: $e');
+          }
+        }
+      }
     } catch (e) {
+      print('Error loading DSR details: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to load DSR details: $e'),
@@ -612,6 +943,36 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
 
       // Clear lists and add default rows
       productList.clear();
+      // Clear and dispose product quantity controllers
+      for (var controller in productQtyControllers) {
+        controller.dispose();
+      }
+      productQtyControllers.clear();
+
+      // Clear and dispose market SKU controllers
+      for (var controller in marketSkuProductControllers) {
+        controller.dispose();
+      }
+      marketSkuProductControllers.clear();
+      for (var controller in marketSkuPriceBControllers) {
+        controller.dispose();
+      }
+      marketSkuPriceBControllers.clear();
+      for (var controller in marketSkuPriceCControllers) {
+        controller.dispose();
+      }
+      marketSkuPriceCControllers.clear();
+
+      // Clear and dispose gift controllers
+      for (var controller in giftQtyControllers) {
+        controller.dispose();
+      }
+      giftQtyControllers.clear();
+      for (var controller in giftNarationControllers) {
+        controller.dispose();
+      }
+      giftNarationControllers.clear();
+
       giftList.clear();
       marketSkuList.clear();
       addProductRow();
@@ -622,6 +983,27 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
       marketNameController.clear();
       nameController.clear();
       kycStatusController.text = kycStatus ?? '';
+      wcEnrolmentController.clear();
+      wcpEnrolmentController.clear();
+      vapEnrolmentController.clear();
+      wcStockController.clear();
+      wcpStockController.clear();
+      vapStockController.clear();
+      slWcVolumeController.clear();
+      slWpVolumeController.clear();
+      jkWcController.clear();
+      jkWcpController.clear();
+      asWcController.clear();
+      asWcpController.clear();
+      otWcController.clear();
+      otWcpController.clear();
+      bwWcController.clear();
+      bwWcpController.clear();
+      bwVapController.clear();
+      currentWcController.clear();
+      currentWcpController.clear();
+      currentVapController.clear();
+      remarksController.clear();
 
       // Reset checkboxes
       brandsWc.updateAll((key, value) => false);
@@ -1258,6 +1640,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                       const SizedBox(height: SparshSpacing.sm),
                       // Purchaser Code Dropdown with Search
                       DropdownSearch<Map<String, dynamic>>(
+                        enabled: !isReadOnly,
                         asyncItems: (String filter) async {
                           if (areaCode == null || purchaserType == null)
                             return <Map<String, dynamic>>[];
@@ -1374,12 +1757,15 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                           }
                         },
                         selectedItem:
-                            purchaserCodeOptions.any(
-                                  (e) => e['value'] == purchaserCode,
-                                )
-                                ? purchaserCodeOptions.firstWhere(
-                                  (e) => e['value'] == purchaserCode,
-                                )
+                            purchaserCode != null
+                                ? {
+                                  'value': purchaserCode,
+                                  'text': '$purchaserCode - ${name ?? ''}',
+                                  'name': name,
+                                  'address': marketName ?? '',
+                                  'kycStatus': kycStatus,
+                                  'marketName': marketName,
+                                }
                                 : null,
                         validator:
                             (Map<String, dynamic>? v) =>
@@ -1570,27 +1956,30 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       TextFormField(
-                        initialValue: wcEnrolment,
+                        controller: wcEnrolmentController,
                         decoration: _fantasticInputDecoration('WC'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => wcEnrolment = v,
                         validator:
                             (v) => v == null || v.isEmpty ? 'Required' : null,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        initialValue: wcpEnrolment,
+                        controller: wcpEnrolmentController,
                         decoration: _fantasticInputDecoration('WCP'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => wcpEnrolment = v,
                         validator:
                             (v) => v == null || v.isEmpty ? 'Required' : null,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        initialValue: vapEnrolment,
+                        controller: vapEnrolmentController,
                         decoration: _fantasticInputDecoration('VAP'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => vapEnrolment = v,
                         validator:
                             (v) => v == null || v.isEmpty ? 'Required' : null,
@@ -1609,27 +1998,30 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       TextFormField(
-                        initialValue: wcStock,
+                        controller: wcStockController,
                         decoration: _fantasticInputDecoration('WC'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => wcStock = v,
                         validator:
                             (v) => v == null || v.isEmpty ? 'Required' : null,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        initialValue: wcpStock,
+                        controller: wcpStockController,
                         decoration: _fantasticInputDecoration('WCP'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => wcpStock = v,
                         validator:
                             (v) => v == null || v.isEmpty ? 'Required' : null,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        initialValue: vapStock,
+                        controller: vapStockController,
                         decoration: _fantasticInputDecoration('VAP'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => vapStock = v,
                         validator:
                             (v) => v == null || v.isEmpty ? 'Required' : null,
@@ -1684,11 +2076,12 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                 }).toList(),
                           ),
                       TextFormField(
-                        initialValue: slWcVolume,
+                        controller: slWcVolumeController,
                         decoration: _fantasticInputDecoration(
                           'WC Industry Volume in (MT)',
                         ),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => slWcVolume = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
@@ -1730,11 +2123,12 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                 }).toList(),
                           ),
                       TextFormField(
-                        initialValue: slWpVolume,
+                        controller: slWpVolumeController,
                         decoration: _fantasticInputDecoration(
                           'WCP Industry Volume in (MT)',
                         ),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => slWpVolume = v,
                       ),
                     ],
@@ -1771,15 +2165,17 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         children: [
                           const Center(child: Text('JK')),
                           TextFormField(
-                            initialValue: last3MonthsAvg['JK_WC'],
+                            controller: jkWcController,
                             decoration: _fantasticInputDecoration(''),
                             keyboardType: TextInputType.number,
+                            readOnly: isReadOnly,
                             onChanged: (v) => last3MonthsAvg['JK_WC'] = v,
                           ),
                           TextFormField(
-                            initialValue: last3MonthsAvg['JK_WCP'],
+                            controller: jkWcpController,
                             decoration: _fantasticInputDecoration(''),
                             keyboardType: TextInputType.number,
+                            readOnly: isReadOnly,
                             onChanged: (v) => last3MonthsAvg['JK_WCP'] = v,
                           ),
                         ],
@@ -1788,15 +2184,17 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         children: [
                           const Center(child: Text('Asian')),
                           TextFormField(
-                            initialValue: last3MonthsAvg['AS_WC'],
+                            controller: asWcController,
                             decoration: _fantasticInputDecoration(''),
                             keyboardType: TextInputType.number,
+                            readOnly: isReadOnly,
                             onChanged: (v) => last3MonthsAvg['AS_WC'] = v,
                           ),
                           TextFormField(
-                            initialValue: last3MonthsAvg['AS_WCP'],
+                            controller: asWcpController,
                             decoration: _fantasticInputDecoration(''),
                             keyboardType: TextInputType.number,
+                            readOnly: isReadOnly,
                             onChanged: (v) => last3MonthsAvg['AS_WCP'] = v,
                           ),
                         ],
@@ -1805,15 +2203,17 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         children: [
                           const Center(child: Text('Other')),
                           TextFormField(
-                            initialValue: last3MonthsAvg['OT_WC'],
+                            controller: otWcController,
                             decoration: _fantasticInputDecoration(''),
                             keyboardType: TextInputType.number,
+                            readOnly: isReadOnly,
                             onChanged: (v) => last3MonthsAvg['OT_WC'] = v,
                           ),
                           TextFormField(
-                            initialValue: last3MonthsAvg['OT_WCP'],
+                            controller: otWcpController,
                             decoration: _fantasticInputDecoration(''),
                             keyboardType: TextInputType.number,
+                            readOnly: isReadOnly,
                             onChanged: (v) => last3MonthsAvg['OT_WCP'] = v,
                           ),
                         ],
@@ -1832,23 +2232,26 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       TextFormField(
-                        initialValue: last3MonthBW['BW_WC'],
+                        controller: bwWcController,
                         decoration: _fantasticInputDecoration('WC'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => last3MonthBW['BW_WC'] = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        initialValue: last3MonthBW['BW_WCP'],
+                        controller: bwWcpController,
                         decoration: _fantasticInputDecoration('WCP'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => last3MonthBW['BW_WCP'] = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        initialValue: last3MonthBW['BW_VAP'],
+                        controller: bwVapController,
                         decoration: _fantasticInputDecoration('VAP'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => last3MonthBW['BW_VAP'] = v,
                       ),
                     ],
@@ -1866,23 +2269,26 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       TextFormField(
-                        initialValue: currentMonthBW['BW_WC'],
+                        controller: currentWcController,
                         decoration: _fantasticInputDecoration('WC'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => currentMonthBW['BW_WC'] = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        initialValue: currentMonthBW['BW_WCP'],
+                        controller: currentWcpController,
                         decoration: _fantasticInputDecoration('WCP'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => currentMonthBW['BW_WCP'] = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
-                        initialValue: currentMonthBW['BW_VAP'],
+                        controller: currentVapController,
                         decoration: _fantasticInputDecoration('VAP'),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => currentMonthBW['BW_VAP'] = v,
                       ),
                     ],
@@ -2061,8 +2467,13 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                     ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 TextFormField(
+                                  controller:
+                                      productQtyControllers.length > idx
+                                          ? productQtyControllers[idx]
+                                          : null,
                                   decoration: _fantasticInputDecoration('Qty'),
                                   keyboardType: TextInputType.number,
+                                  readOnly: isReadOnly,
                                   onChanged: (v) => productList[idx]['qty'] = v,
                                 ),
                                 Align(
@@ -2152,27 +2563,42 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                     ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 TextFormField(
+                                  controller:
+                                      marketSkuProductControllers.length > idx
+                                          ? marketSkuProductControllers[idx]
+                                          : null,
                                   decoration: _fantasticInputDecoration(
                                     'Product',
                                   ),
+                                  readOnly: isReadOnly,
                                   onChanged:
                                       (v) => marketSkuList[idx]['product'] = v,
                                 ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 TextFormField(
+                                  controller:
+                                      marketSkuPriceBControllers.length > idx
+                                          ? marketSkuPriceBControllers[idx]
+                                          : null,
                                   decoration: _fantasticInputDecoration(
                                     'Price - B',
                                   ),
                                   keyboardType: TextInputType.number,
+                                  readOnly: isReadOnly,
                                   onChanged:
                                       (v) => marketSkuList[idx]['priceB'] = v,
                                 ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 TextFormField(
+                                  controller:
+                                      marketSkuPriceCControllers.length > idx
+                                          ? marketSkuPriceCControllers[idx]
+                                          : null,
                                   decoration: _fantasticInputDecoration(
                                     'Price - C',
                                   ),
                                   keyboardType: TextInputType.number,
+                                  readOnly: isReadOnly,
                                   onChanged:
                                       (v) => marketSkuList[idx]['priceC'] = v,
                                 ),
@@ -2263,10 +2689,17 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                     ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 TextFormField(
+                                  controller:
+                                      giftQtyControllers.length > idx
+                                          ? giftQtyControllers[idx]
+                                          : null,
                                   decoration: _fantasticInputDecoration('Qty'),
                                   keyboardType: TextInputType.number,
+                                  readOnly: isReadOnly,
                                   onChanged: (v) => giftList[idx]['qty'] = v,
                                 ),
+                                const SizedBox(height: SparshSpacing.xs),
+
                                 Align(
                                   alignment: Alignment.centerRight,
                                   child: IconButton(
@@ -2363,9 +2796,11 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                       ),
                       const SizedBox(height: SparshSpacing.sm),
                       TextFormField(
+                        controller: remarksController,
                         decoration: _fantasticInputDecoration(
                           'Any other Remarks',
                         ),
+                        readOnly: isReadOnly,
                         onChanged: (v) => remarks = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
