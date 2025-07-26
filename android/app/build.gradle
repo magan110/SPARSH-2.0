@@ -31,6 +31,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled true
     }
 
     buildTypes {
@@ -40,6 +41,17 @@ android {
             signingConfig = signingConfigs.debug
         }
     }
+    
+  // Force everyone to use the same play-services-location
+  configurations.all {
+    resolutionStrategy.eachDependency { details ->
+      if (details.requested.group == 'com.google.android.gms'
+          && details.requested.name == 'play-services-location') {
+        // pick a recent stable version – match whatever your plugins expect
+        details.useVersion '21.0.1'
+      }
+    }
+  }
 }
 
 flutter {
@@ -49,9 +61,12 @@ flutter {
 dependencies {
     implementation platform('com.google.firebase:firebase-bom:33.13.0')
     // Add implementation for handling notification issues
-    implementation 'androidx.core:core:1.10.1'
-    // Add Google Play Services Location for background location tracking
-    implementation 'com.google.android.gms:play-services-location:21.2.0'
+    implementation 'androidx.core:core:1.16.0'
+    implementation 'androidx.core:core-ktx:1.16.0'
+    implementation "com.google.android.gms:play-services-location:21.0.1"
+    implementation 'com.android.support:multidex:1.0.3'
+    
+    
     // Add desugaring dependency for qr_code_scanner
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 }

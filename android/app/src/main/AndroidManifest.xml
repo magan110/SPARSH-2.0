@@ -5,7 +5,8 @@
     <application
         android:label="SPARSH"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        tools:replace="android:label">
 
         <activity
             android:name=".MainActivity"
