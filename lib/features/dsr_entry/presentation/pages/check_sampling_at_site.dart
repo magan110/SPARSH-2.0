@@ -5,7 +5,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
-
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
@@ -18,8 +17,9 @@ class ApiConstants {
   static const String getQualityOptions = '/DsrTry/getQualityOptions';
   static const String getStatusOptions = '/DsrTry/getStatusOptions';
   static const String dsrTry = '/DsrTry';
-
-  static String url(String endpoint) => 'baseUrlendpoint'.replaceAll('baseUrl', baseUrl).replaceAll('endpoint', endpoint);
+  static String url(String endpoint) => 'baseUrlendpoint'
+      .replaceAll('baseUrl', baseUrl)
+      .replaceAll('endpoint', endpoint);
 }
 
 class CheckSamplingAtSite extends StatefulWidget {
@@ -29,21 +29,24 @@ class CheckSamplingAtSite extends StatefulWidget {
   State<CheckSamplingAtSite> createState() => _CheckSamplingAtSiteState();
 }
 
-class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
-  // ─── State & Controllers ────────────────────────────────────────────────────
+class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+  final _formKey = GlobalKey<FormState>();
+
+  // Geolocation
+  Position? _currentPosition;
+
   // Process type dropdown state
   String? _processItem = 'Select';
-  List<String> _processdropdownItems = ['Select'];
-  bool _isLoadingProcessTypes = true;
+  List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
   String? _processTypeError;
 
   // Document-number dropdown state
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
-
-  // Geolocation
-  Position? _currentPosition;
 
   // Product, quality, status dropdowns
   List<String> _productNames = ['Select'];
@@ -59,28 +62,55 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
   bool _isLoadingStatusOptions = true;
 
   // Text controllers
-  final _dateController = TextEditingController();
+  final _submissionDateController = TextEditingController();
   final _reportDateController = TextEditingController();
-  DateTime? _selectedDate;
-  DateTime? _selectedReportDate;
-
   final _siteController = TextEditingController();
   final _potentialController = TextEditingController();
   final _applicatorController = TextEditingController();
   final _contactNameController = TextEditingController();
   final _mobileController = TextEditingController();
 
-  final List<XFile?> _selectedImages = [null];
-  final _picker = ImagePicker();
+  // Images
+  final List<File?> _selectedImages = [null];
+  final ImagePicker _picker = ImagePicker();
 
+  // Document number
   final _documentNumberController = TextEditingController();
   String? _documentNumber;
 
-  final _formKey = GlobalKey<FormState>();
+  // Dynamic field config for activity type
+  final Map<String, List<Map<String, String>>> activityFieldConfig = {
+    "Visit to Get / Check Sampling at Site": [
+      {"label": "Site Name", "key": "siteName", "rem": "dsrRem01"},
+      {"label": "Product Name", "key": "productName", "rem": "dsrRem02"},
+      {"label": "Potential (MT)", "key": "potential", "rem": "dsrRem03"},
+      {"label": "Applicator Name", "key": "applicatorName", "rem": "dsrRem04"},
+      {"label": "Quality of Sample", "key": "quality", "rem": "dsrRem05"},
+      {"label": "Status of Sample", "key": "status", "rem": "dsrRem06"},
+      {"label": "Contact Name", "key": "contactName", "rem": "dsrRem07"},
+      {"label": "Mobile Number", "key": "mobile", "rem": "dsrRem08"},
+    ],
+  };
+
+  // Dynamic controllers for text fields
+  final Map<String, TextEditingController> _controllers = {};
+
+  String get _selectedActivityType => "Visit to Get / Check Sampling at Site";
 
   @override
   void initState() {
     super.initState();
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
+    _fadeController.forward();
+
     _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
@@ -88,6 +118,27 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     _fetchQualityOptions();
     _fetchStatusOptions();
     _setSubmissionDateToToday();
+    _initControllersForActivity(_selectedActivityType);
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _submissionDateController.dispose();
+    _reportDateController.dispose();
+    _siteController.dispose();
+    _potentialController.dispose();
+    _applicatorController.dispose();
+    _contactNameController.dispose();
+    _mobileController.dispose();
+    _documentNumberController.dispose();
+
+    // Dispose dynamic controllers
+    for (final c in _controllers.values) {
+      c.dispose();
+    }
+
+    super.dispose();
   }
 
   Future<void> _initGeolocation() async {
@@ -104,7 +155,9 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
       if (permission == LocationPermission.deniedForever) {
         throw Exception('Location permissions permanently denied.');
       }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       setState(() {
         _currentPosition = pos;
       });
@@ -113,10 +166,21 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     }
   }
 
+  void _initControllersForActivity(String activityType) {
+    final config = activityFieldConfig[activityType] ?? [];
+    for (final field in config) {
+      if (field['key'] != 'productName' &&
+          field['key'] != 'quality' &&
+          field['key'] != 'status') {
+        _controllers[field['key']!] = TextEditingController();
+      }
+    }
+  }
 
-  // Load document number when screen initializes
   Future<void> _loadInitialDocumentNumber() async {
-    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(DocumentNumberKeys.checkSamplingSite);
+    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(
+      DocumentNumberKeys.checkSamplingSite,
+    );
     if (savedDocNumber != null) {
       setState(() {
         _documentNumber = savedDocNumber;
@@ -124,64 +188,104 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     }
   }
 
-  // Fetch process types from backend
   Future<void> _fetchProcessTypes() async {
     setState(() {
-      _isLoadingProcessTypes = true;
       _processTypeError = null;
     });
+    setState(() {
+      _processdropdownItems = ['Select', 'Add', 'Update'];
+      _processItem = 'Select';
+    });
+  }
+
+  Future<void> _fetchDocumentNumbers() async {
+    setState(() {
+      _loadingDocs = true;
+      _documentNumbers = [];
+      _selectedDocuNumb = null;
+    });
+    final uri = Uri.parse(
+      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=52',
+    );
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getProcessTypes');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        List processTypesList = [];
-        if (data is List) {
-          processTypesList = data;
-        } else if (data is Map &&
-            (data['ProcessTypes'] != null || data['processTypes'] != null)) {
-          processTypesList =
-              (data['ProcessTypes'] ?? data['processTypes']) as List;
-        }
-        final processTypes = processTypesList
-            .map<String>((type) {
-              if (type is Map) {
-                return type['Description']?.toString() ??
-                    type['description']?.toString() ??
-                    '';
-              } else {
-                return type.toString();
-              }
-            })
-            .where((desc) => desc.isNotEmpty)
-            .toList();
+      final resp = await http.get(uri);
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as List;
         setState(() {
-          _processdropdownItems = ['Select', ...processTypes];
-          _processItem = 'Select';
-          _isLoadingProcessTypes = false;
+          _documentNumbers =
+              data
+                  .map((e) {
+                    return (e['DocuNumb'] ??
+                            e['docuNumb'] ??
+                            e['DocumentNumber'] ??
+                            e['documentNumber'] ??
+                            '')
+                        .toString();
+                  })
+                  .where((s) => s.isNotEmpty)
+                  .toList();
         });
-      } else {
-        throw Exception('Failed to load process types.');
       }
-    } catch (e) {
+    } catch (_) {
+      // ignore errors
+    } finally {
       setState(() {
-        _processdropdownItems = ['Select'];
-        _processItem = 'Select';
-        _isLoadingProcessTypes = false;
-        _processTypeError = 'Failed to load process types.';
+        _loadingDocs = false;
       });
     }
   }
 
-  // Restore _fetchProductNames
-  Future<void> _fetchProductNames() async {
-    setState(() { _isLoadingProductNames = true; });
+  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
+    final uri = Uri.parse(
+      'http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
+    );
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getProductOptions');
+      final resp = await http.get(uri);
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        final config = activityFieldConfig[_selectedActivityType] ?? [];
+        for (final field in config) {
+          if (field['key'] == 'productName') {
+            setState(() {
+              _selectedProductName = data[field['rem']] ?? 'Select';
+            });
+          } else if (field['key'] == 'quality') {
+            setState(() {
+              _qualityItem = data[field['rem']] ?? 'Select';
+            });
+          } else if (field['key'] == 'status') {
+            setState(() {
+              _statusItem = data[field['rem']] ?? 'Select';
+            });
+          } else {
+            _controllers[field['key']!]?.text = data[field['rem']] ?? '';
+          }
+        }
+        setState(() {
+          _submissionDateController.text =
+              data['SubmissionDate']?.toString()?.substring(0, 10) ?? '';
+          _reportDateController.text =
+              data['ReportDate']?.toString()?.substring(0, 10) ?? '';
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchProductNames() async {
+    setState(() {
+      _isLoadingProductNames = true;
+    });
+    try {
+      final url = Uri.parse(
+        'http://192.168.36.25/api/DsrTry/getProductOptions',
+      );
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final productNames = (data is List ? data : <String>[]).map((e) => e.toString()).toList();
+        final productNames =
+            (data is List ? data : <String>[])
+                .map((e) => e.toString())
+                .toList();
         setState(() {
           _productNames = ['Select', ...productNames];
           _isLoadingProductNames = false;
@@ -200,15 +304,21 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     }
   }
 
-  // Restore _fetchQualityOptions
   Future<void> _fetchQualityOptions() async {
-    setState(() { _isLoadingQualityOptions = true; });
+    setState(() {
+      _isLoadingQualityOptions = true;
+    });
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getQualityOptions');
+      final url = Uri.parse(
+        'http://192.168.36.25/api/DsrTry/getQualityOptions',
+      );
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final qualityOptions = (data is List ? data : <String>[]).map((e) => e.toString()).toList();
+        final qualityOptions =
+            (data is List ? data : <String>[])
+                .map((e) => e.toString())
+                .toList();
         setState(() {
           _qualityOptions = ['Select', ...qualityOptions];
           _isLoadingQualityOptions = false;
@@ -227,15 +337,19 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     }
   }
 
-  // Restore _fetchStatusOptions
   Future<void> _fetchStatusOptions() async {
-    setState(() { _isLoadingStatusOptions = true; });
+    setState(() {
+      _isLoadingStatusOptions = true;
+    });
     try {
       final url = Uri.parse('http://192.168.36.25/api/DsrTry/getStatusOptions');
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final statusOptions = (data is List ? data : <String>[]).map((e) => e.toString()).toList();
+        final statusOptions =
+            (data is List ? data : <String>[])
+                .map((e) => e.toString())
+                .toList();
         setState(() {
           _statusOptions = ['Select', ...statusOptions];
           _isLoadingStatusOptions = false;
@@ -254,91 +368,18 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     }
   }
 
-  // Fetch document numbers for Update
-  Future<void> _fetchDocumentNumbers() async {
+  void _onProcessTypeChanged(String? value) {
     setState(() {
-      _loadingDocs = true;
-      _documentNumbers = [];
-      _selectedDocuNumb = null;
+      _processItem = value;
     });
-    final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=52' // Use correct param for this activity
-    );
-    try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers = data
-            .map((e) {
-              return (e['DocuNumb']
-                   ?? e['docuNumb']
-                   ?? e['DocumentNumber']
-                   ?? e['documentNumber']
-                   ?? '').toString();
-            })
-            .where((s) => s.isNotEmpty)
-            .toList();
-        });
-      }
-    } catch (_) {
-      // ignore errors
-    } finally {
-      setState(() { _loadingDocs = false; });
+    if (value == 'Update') {
+      _fetchDocumentNumbers();
     }
-  }
-
-  // Fetch details for a document number and populate fields
-  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse('http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
-    try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
-        setState(() {
-          _siteController.text = data['dsrRem01'] ?? '';
-          _selectedProductName = data['dsrRem02'] ?? 'Select';
-          _potentialController.text = data['dsrRem03'] ?? '';
-          _applicatorController.text = data['dsrRem04'] ?? '';
-          _qualityItem = data['dsrRem05'] ?? 'Select';
-          _statusItem = data['dsrRem06'] ?? 'Select';
-          _contactNameController.text = data['dsrRem07'] ?? '';
-          _mobileController.text = data['dsrRem08'] ?? '';
-          // Dates
-          if (data['SubmissionDate'] != null) {
-            _selectedDate = DateTime.tryParse(data['SubmissionDate']);
-            if (_selectedDate != null) {
-              _dateController.text = DateFormat('yyyy-MM-dd').format(_selectedDate!);
-            }
-          }
-          if (data['ReportDate'] != null) {
-            _selectedReportDate = DateTime.tryParse(data['ReportDate']);
-            if (_selectedReportDate != null) {
-              _reportDateController.text = DateFormat('yyyy-MM-dd').format(_selectedReportDate!);
-            }
-          }
-        });
-      }
-    } catch (_) {}
-  }
-
-  @override
-  void dispose() {
-    _dateController.dispose();
-    _reportDateController.dispose();
-    _siteController.dispose();
-    _potentialController.dispose();
-    _applicatorController.dispose();
-    _contactNameController.dispose();
-    _mobileController.dispose();
-    _documentNumberController.dispose();
-    super.dispose();
   }
 
   void _setSubmissionDateToToday() {
     final today = DateTime.now();
-    _selectedDate = today;
-    _dateController.text = DateFormat('yyyy-MM-dd').format(today);
+    _submissionDateController.text = DateFormat('yyyy-MM-dd').format(today);
   }
 
   Future<void> _pickReportDate() async {
@@ -346,153 +387,165 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     final threeDaysAgo = now.subtract(const Duration(days: 3));
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedReportDate ?? now,
+      initialDate: now,
       firstDate: DateTime(now.year - 10),
       lastDate: now,
     );
+
     if (picked != null) {
       if (picked.isBefore(threeDaysAgo)) {
         showDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Please Put Valid DSR Date.'),
-            content: const Text(
-              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.'
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Please Put Valid DSR Date.'),
+                content: const Text(
+                  'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const DsrExceptionEntryPage(),
+                        ),
+                      );
+                    },
+                    child: const Text('Go to Exception Entry'),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const DsrExceptionEntryPage()),
-                  );
-                },
-                child: const Text('Go to Exception Entry'),
-              ),
-            ],
-          ),
         );
         return;
       }
       setState(() {
-        _selectedReportDate = picked;
         _reportDateController.text = DateFormat('yyyy-MM-dd').format(picked);
       });
     }
   }
 
-  Future<void> _pickDate(
-    TextEditingController ctrl,
-    DateTime? initialDate,
-    ValueChanged<DateTime> onSelected, {
-    bool isReportDate = false,
-  }) async {
-    final now = DateTime.now();
-    final firstDate = isReportDate 
-        ? now.subtract(const Duration(days: 3))  // Last 3 days for report date
-        : DateTime(2000);  // Any date for submission date
-    final lastDate = isReportDate 
-        ? now  // Today for report date
-        : DateTime(now.year + 5);  // Future date for submission date
-    
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate ?? now,
-      firstDate: firstDate,
-      lastDate: lastDate,
-    );
-    if (picked != null) {
-      onSelected(picked);
-      ctrl.text = DateFormat('yyyy-MM-dd').format(picked);
+  Future<void> _pickImage(int index) async {
+    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _selectedImages[index] = File(pickedFile.path);
+      });
     }
   }
 
-  Future<void> _pickImage(int idx) async {
-    final file = await _picker.pickImage(source: ImageSource.gallery);
-    if (file != null) setState(() => _selectedImages[idx] = file);
+  void _addImageRow() {
+    if (_selectedImages.length < 3) {
+      setState(() {
+        _selectedImages.add(null);
+      });
+    }
   }
 
-  void _showImage(XFile file) {
+  void _removeImageRow(int index) {
+    if (_selectedImages.length > 1) {
+      setState(() {
+        _selectedImages.removeAt(index);
+      });
+    }
+  }
+
+  void _showImageDialog(File imageFile) {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        child: Image.file(
-          File(file.path),
-          fit: BoxFit.contain,
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.6,
-        ),
-      ),
+      builder:
+          (_) => Dialog(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  fit: BoxFit.contain,
+                  image: FileImage(imageFile),
+                ),
+              ),
+            ),
+          ),
     );
   }
 
-  void _addImageField() {
-    if (_selectedImages.length < 3) setState(() => _selectedImages.add(null));
-  }
-
-  void _removeImageField(int idx) {
-    if (_selectedImages.length > 1) setState(() => _selectedImages.removeAt(idx));
-  }
-
-  // SUBMIT / UPDATE
   Future<void> _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
 
-    final dsrData = {
-      'ActivityType': 'Visit to Get / Check Sampling at Site',
-      'SubmissionDate': _selectedDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      'ReportDate': _selectedReportDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      'dsrRem01': _siteController.text,
-      'dsrRem02': _selectedProductName ?? '',
-      'dsrRem03': _potentialController.text,
-      'dsrRem04': _applicatorController.text,
-      'dsrRem05': (_qualityItem != null && _qualityItem != 'Select') ? _qualityItem : '',
-      'dsrRem06': (_statusItem != null && _statusItem != 'Select') ? _statusItem : '',
-      'dsrRem07': _contactNameController.text,
-      'dsrRem08': _mobileController.text,
-      'latitude': _currentPosition?.latitude.toString() ?? '',
-      'longitude': _currentPosition?.longitude.toString() ?? '',
+    final dsrData = <String, dynamic>{
+      'ActivityType': _selectedActivityType,
+      'SubmissionDate': _submissionDateController.text,
+      'ReportDate': _reportDateController.text,
+      'CreateId': '2948',
       'DsrParam': '52',
       'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
       'ProcessType': _processItem == 'Update' ? 'U' : 'A',
-      'CreateId': '2948',
+      'latitude': _currentPosition?.latitude.toString() ?? '',
+      'longitude': _currentPosition?.longitude.toString() ?? '',
     };
+
+    final config = activityFieldConfig[_selectedActivityType] ?? [];
+    for (final field in config) {
+      if (field['key'] == 'productName') {
+        dsrData[field['rem']!] = _selectedProductName ?? '';
+      } else if (field['key'] == 'quality') {
+        dsrData[field['rem']!] = _qualityItem ?? '';
+      } else if (field['key'] == 'status') {
+        dsrData[field['rem']!] = _statusItem ?? '';
+      } else {
+        dsrData[field['rem']!] = _controllers[field['key']!]?.text ?? '';
+      }
+    }
+
+    final imageData = <String, dynamic>{};
+    for (int i = 0; i < _selectedImages.length; i++) {
+      final file = _selectedImages[i];
+      if (file != null) {
+        final imageBytes = await file.readAsBytes();
+        final base64Image =
+            'data:image/jpeg;base64,${base64Encode(imageBytes)}';
+        imageData['image${i + 1}'] = base64Image;
+      }
+    }
+    dsrData['Images'] = imageData;
 
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/' + (_processItem == 'Update' ? 'update' : '')
+        'http://192.168.36.25/api/DsrTry/' +
+            (_processItem == 'Update' ? 'update' : ''),
       );
-      final resp = _processItem == 'Update'
-          ? await http.put(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            )
-          : await http.post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            );
 
-      final success = (_processItem == 'Update' && resp.statusCode == 204) ||
-                      (_processItem != 'Update' && resp.statusCode == 201);
+      final resp =
+          _processItem == 'Update'
+              ? await http.put(
+                url,
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(dsrData),
+              )
+              : await http.post(
+                url,
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(dsrData),
+              );
 
-      if (!success) {
-        print('Error submitting DSR: Status  [33m [1m${resp.statusCode} [0m\nBody: ${resp.body}');
-      }
+      final success =
+          (_processItem == 'Update' && resp.statusCode == 204) ||
+          (_processItem != 'Update' && resp.statusCode == 201);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success
-              ? exitAfter
-                  ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                  : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-              : 'Error: ${resp.body}'),
+          content: Text(
+            success
+                ? exitAfter
+                    ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
+                    : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
+                : 'Error: ${resp.body}',
+          ),
           backgroundColor: success ? Colors.green : Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -502,30 +555,10 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
         if (exitAfter) {
           Navigator.of(context).pop();
         } else {
-          _formKey.currentState!.reset();
-          setState(() {
-            _processItem = 'Select';
-            _selectedDocuNumb = null;
-            _dateController.clear();
-            _reportDateController.clear();
-            _selectedDate = null;
-            _selectedReportDate = null;
-            _siteController.clear();
-            _selectedProductName = 'Select';
-            _potentialController.clear();
-            _applicatorController.clear();
-            _qualityItem = 'Select';
-            _statusItem = 'Select';
-            _contactNameController.clear();
-            _mobileController.clear();
-            _selectedImages
-              ..clear()
-              ..add(null);
-          });
+          _clearForm();
         }
       }
     } catch (e) {
-      print('Exception during submit: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Exception: $e'),
@@ -536,50 +569,57 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     }
   }
 
-  Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    print('Submitting DSR Data: $dsrData'); // DEBUG
-    final url = Uri.parse(ApiConstants.url(ApiConstants.dsrTry));
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(dsrData),
-      );
-      print('API Response Status: ${response.statusCode}'); // DEBUG
-      print('API Response Body: ${response.body}'); // DEBUG
-      if (response.statusCode == 201) {
-        print('✅ Data inserted successfully!');
-      } else {
-        print('❌ Data NOT inserted! Error: ${response.body}');
+  void _clearForm() {
+    setState(() {
+      _processItem = 'Select';
+      _selectedDocuNumb = null;
+      _submissionDateController.clear();
+      _reportDateController.clear();
+      _selectedProductName = 'Select';
+      _qualityItem = 'Select';
+      _statusItem = 'Select';
+      _selectedImages.clear();
+      _selectedImages.add(null);
+
+      // Clear dynamic controllers
+      for (final c in _controllers.values) {
+        c.clear();
       }
-    } catch (e) {
-      print('API Exception: ${e.toString()}'); // DEBUG
-      rethrow;
-    }
+    });
+    _formKey.currentState?.reset();
   }
 
   Future<String?> _fetchDocumentNumberFromServer() async {
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/generateDocumentNumber');
+      final url = Uri.parse(
+        'http://192.168.36.25/api/DsrTry/generateDocumentNumber',
+      );
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode('KKR'), // Hardcoded to KKR
       );
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         String? documentNumber;
         if (data is Map<String, dynamic>) {
-          documentNumber = data['documentNumber'] ?? data['DocumentNumber'] ?? data['docNumber'] ?? data['DocNumber'];
+          documentNumber =
+              data['documentNumber'] ??
+              data['DocumentNumber'] ??
+              data['docNumber'] ??
+              data['DocNumber'];
         } else if (data is String) {
           documentNumber = data;
         }
-        
-        // Save to persistent storage
+
         if (documentNumber != null) {
-          await DocumentNumberStorage.saveDocumentNumber(DocumentNumberKeys.checkSamplingSite, documentNumber);
+          await DocumentNumberStorage.saveDocumentNumber(
+            DocumentNumberKeys.checkSamplingSite,
+            documentNumber,
+          );
         }
-        
+
         return documentNumber;
       } else {
         return null;
@@ -589,467 +629,790 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite> {
     }
   }
 
-  Widget _buildLabel(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: SparshSpacing.sm),
-        child: Text(text, style: SparshTypography.bodyBold),
-      );
-
-  Widget _buildDropdown({
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-    String? Function(String?)? validator,
-  }) => DropdownButtonFormField<String>(
-        value: value,
-        isExpanded: true,
-        decoration: InputDecoration(
-          filled: true,
-          fillColor: SparshTheme.lightGreyBackground,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: SparshSpacing.md,
-            vertical: SparshSpacing.sm,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.blue,
+        elevation: 0,
+        centerTitle: true,
+        title: const Text(
+          'Check Sampling at Site',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
           ),
         ),
-        items: items.map((it) => DropdownMenuItem(value: it, child: Text(it))).toList(),
-        onChanged: onChanged,
-        validator: validator,
-      );
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DsrEntry()),
+              ),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            onPressed: () => _showHelpDialog(),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header Section
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blue[100]!),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.science,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Check Sampling at Site',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Record details of your site visit for sampling',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Process Type Section
+                  _buildSectionTitle('Process Type'),
+                  const SizedBox(height: 8),
+                  _buildProcessTypeDropdown(),
+                  const SizedBox(height: 24),
+
+                  // Document Number (for Update)
+                  if (_processItem == 'Update') ...[
+                    _buildSectionTitle('Document Number'),
+                    const SizedBox(height: 8),
+                    _loadingDocs
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildDocumentNumberDropdown(),
+                    const SizedBox(height: 24),
+                  ],
+
+                  // Date Fields Section
+                  _buildSectionTitle('Date Information'),
+                  const SizedBox(height: 8),
+                  _buildDateField(
+                    'Submission Date',
+                    _submissionDateController,
+                    readOnly: true,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDateField(
+                    'Report Date',
+                    _reportDateController,
+                    onTap: _pickReportDate,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Dynamic Fields Section
+                  _buildSectionTitle('Sampling Details'),
+                  const SizedBox(height: 8),
+                  ..._buildDynamicFields(),
+                  const SizedBox(height: 24),
+
+                  // Image Upload Section
+                  _buildSectionTitle('Upload Images'),
+                  const SizedBox(height: 8),
+                  ..._buildImageUploadSection(),
+                  const SizedBox(height: 32),
+
+                  // Submit Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Submit & New',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[700],
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Submit & Exit',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildProcessTypeDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _processItem,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select process type',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items:
+          _processdropdownItems
+              .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+              .toList(),
+      onChanged: _onProcessTypeChanged,
+      validator:
+          (v) =>
+              v == null || v == 'Select'
+                  ? 'Please select a Process Type'
+                  : null,
+    );
+  }
+
+  Widget _buildDocumentNumberDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedDocuNumb,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select document number',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items:
+          _documentNumbers
+              .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+              .toList(),
+      onChanged: (v) async {
+        setState(() => _selectedDocuNumb = v);
+        if (v != null) await _fetchAndPopulateDetails(v);
+      },
+      validator: (v) => v == null ? 'Required' : null,
+    );
+  }
 
   Widget _buildDateField(
-    TextEditingController ctrl,
-    VoidCallback onTap,
-    String hint, {
-    String? Function(String?)? validator,
-  }) => TextFormField(
-        controller: ctrl,
-        readOnly: true,
-        decoration: InputDecoration(
-          hintText: hint,
-          filled: true,
-          fillColor: SparshTheme.lightGreyBackground,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-            borderSide: BorderSide.none,
-          ),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.calendar_today, size: SparshIconSize.md),
-            onPressed: onTap,
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: SparshSpacing.md,
-            vertical: SparshSpacing.sm,
-          ),
-        ),
-        onTap: onTap,
-        validator: validator,
-      );
-
-  Widget _buildTextField(
-    String hint,
-    TextEditingController ctrl, {
-    TextInputType keyboardType = TextInputType.text,
-    int maxLines = 1,
-    String? Function(String?)? validator,
-  }) => TextFormField(
-        controller: ctrl,
-        keyboardType: keyboardType,
-        maxLines: maxLines,
-        decoration: InputDecoration(
-          hintText: hint,
-          filled: true,
-          fillColor: SparshTheme.cardBackground,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: SparshSpacing.md,
-            vertical: SparshSpacing.sm,
-          ),
-        ),
-        validator: validator,
-      );
-
-  Widget _buildImageRow(int idx) {
-    final file = _selectedImages[idx];
+    String label,
+    TextEditingController controller, {
+    bool readOnly = false,
+    VoidCallback? onTap,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Document ${idx + 1}', style: SparshTypography.bodyBold),
-        const SizedBox(height: SparshSpacing.xs),
-        Row(
-          children: [
-            ElevatedButton.icon(
-              onPressed: () => _pickImage(idx),
-              icon: Icon(file != null ? Icons.refresh : Icons.upload_file),
-              label: Text(file != null ? 'Replace' : 'Upload'),
-            ),
-            const SizedBox(width: SparshSpacing.sm),
-            if (file != null)
-              ElevatedButton.icon(
-                onPressed: () => _showImage(file),
-                icon: const Icon(Icons.visibility),
-                label: const Text('View'),
-              ),
-            const Spacer(),
-            if (_selectedImages.length > 1 && idx == _selectedImages.length - 1)
-              IconButton(
-                icon: const Icon(Icons.remove_circle_outline, color: SparshTheme.errorRed),
-                onPressed: () => _removeImageField(idx),
-              ),
-          ],
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
         ),
-        const SizedBox(height: SparshSpacing.md),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          readOnly: readOnly,
+          onTap: onTap,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Select date',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+            suffixIcon:
+                readOnly
+                    ? const Icon(Icons.lock, color: Colors.grey)
+                    : const Icon(Icons.calendar_today, color: Colors.blue),
+          ),
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
+        ),
       ],
     );
   }
 
-  Widget _sectionContainer({required Widget child}) => Container(
-        decoration: BoxDecoration(
-          color: SparshTheme.cardBackground,
-          borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-          boxShadow: SparshShadows.card,
-        ),
-        padding: const EdgeInsets.all(SparshSpacing.md),
-        child: child,
-      );
-
-  // Add a method to reset the form (clear document number)
-  void _resetForm() {
-    setState(() {
-      _documentNumber = null;
-      _documentNumberController.clear();
-      _processItem = 'Select';
-      // Clear other form fields as needed
-    });
-    DocumentNumberStorage.clearDocumentNumber(DocumentNumberKeys.checkSamplingSite); // Clear from persistent storage
-  }
-
-  void _onProcessTypeChanged(String? desc) {
-    setState(() {
-      // _selectedProcessTypeDescription = desc; // Removed
-      // final selected = _processTypes.firstWhere( // Removed
-      //   (item) => item['description'] == desc, // Removed
-      //   orElse: () => {'code': '', 'description': ''}, // Removed
-      // ); // Removed
-      // _selectedProcessTypeCode = selected['code']; // Removed
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: SparshTheme.scaffoldBackground,
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DsrEntry()),
+  Widget _buildDropdownField(
+    String label,
+    String? value,
+    List<String> items,
+    Function(String?) onChanged, {
+    bool isLoading = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
           ),
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
         ),
-        title: Text(
-          'Check Sampling at Site',
-          style: SparshTypography.heading5.copyWith(color: Colors.white),
-          overflow: TextOverflow.ellipsis,
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child:
+              isLoading
+                  ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                  : DropdownButton<String>(
+                    isExpanded: true,
+                    value: value,
+                    underline: Container(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    items:
+                        items
+                            .map(
+                              (item) => DropdownMenuItem(
+                                value: item,
+                                child: Text(item),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: onChanged,
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Colors.grey,
+                    ),
+                  ),
         ),
-        backgroundColor: SparshTheme.primaryBlueAccent,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(SparshSpacing.md),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Activity Information ───────────────────────────
-              Container(
-                decoration: BoxDecoration(
-                  color: SparshTheme.cardBackground,
-                  borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                  boxShadow: SparshShadows.card,
-                ),
-                padding: const EdgeInsets.all(SparshSpacing.md),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Activity Information', style: SparshTypography.bodyBold),
-                    const SizedBox(height: SparshSpacing.sm),
-                    Text('Process Type', style: SparshTypography.bodyBold),
-                    if (_processTypeError != null)
-                      Text(_processTypeError!, style: const TextStyle(color: Colors.red)),
-                    _isLoadingProcessTypes
-                      ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                      : DropdownButtonFormField<String>(
-                          value: _processItem,
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: SparshTheme.lightGreyBackground,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: SparshSpacing.md,
-                              vertical: SparshSpacing.sm,
-                            ),
-                          ),
-                          items: _processdropdownItems.map((it) => DropdownMenuItem(value: it, child: Text(it))).toList(),
-                          onChanged: (val) async {
-                            setState(() => _processItem = val);
-                            if (val == 'Update') await _fetchDocumentNumbers();
-                          },
-                          validator: (v) => v == null || v == 'Select' ? 'Required' : null,
-                          // enabled: _processdropdownItems.length > 1,
-                        ),
-                    if (_processItem == 'Update') ...[
-                      const SizedBox(height: SparshSpacing.sm),
-                      _loadingDocs
-                        ? const Center(child: CircularProgressIndicator())
-                        : DropdownButtonFormField<String>(
-                            value: _selectedDocuNumb,
-                            decoration: const InputDecoration(labelText: 'Document Number'),
-                            items: _documentNumbers
-                                .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-                                .toList(),
-                            onChanged: (v) async {
-                              setState(() => _selectedDocuNumb = v);
-                              if (v != null) await _fetchAndPopulateDetails(v);
-                            },
-                            validator: (v) => v == null ? 'Required' : null,
-                          ),  
-                    ],
-                    const SizedBox(height: SparshSpacing.sm),
-                    Text('Submission Date', style: SparshTypography.bodyBold),
-                    TextFormField(
-                      controller: _dateController,
-                      readOnly: true,
-                      enabled: false,
-                      decoration: InputDecoration(
-                        hintText: 'Submission Date',
-                        filled: true,
-                        fillColor: SparshTheme.lightGreyBackground,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: SparshSpacing.md,
-                          vertical: SparshSpacing.sm,
-                        ),
-                        suffixIcon: const Icon(Icons.lock, color: Colors.grey),
-                      ),
-                      validator: (v) => v == null || v.isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    Text('Report Date', style: SparshTypography.bodyBold),
-                    TextFormField(
-                      controller: _reportDateController,
-                      readOnly: true,
-                      onTap: _pickReportDate,
-                      decoration: InputDecoration(
-                        hintText: 'Select Report Date',
-                        filled: true,
-                        fillColor: SparshTheme.lightGreyBackground,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: SparshSpacing.md,
-                          vertical: SparshSpacing.sm,
-                        ),
-                        suffixIcon: const Icon(Icons.calendar_today, size: SparshIconSize.md),
-                      ),
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: SparshSpacing.md),
+      ],
+    );
+  }
 
-              // Site & Product Section
-              _sectionContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildLabel('Site Name'),
-                    _buildTextField(
-                      'Enter Site Name',
-                      _siteController,
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    _buildLabel('Product Name'),
-                    _isLoadingProductNames
-                        ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                        : DropdownButtonFormField<String>(
-                            value: _selectedProductName,
-                            isExpanded: true,
-                            decoration: InputDecoration(
-                              filled: true,
-                              fillColor: SparshTheme.lightGreyBackground,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                                borderSide: BorderSide.none,
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: SparshSpacing.md,
-                                vertical: SparshSpacing.sm,
-                              ),
-                            ),
-                            items: _productNames.map((it) => DropdownMenuItem(value: it, child: Text(it))).toList(),
-                            onChanged: (v) => setState(() => _selectedProductName = v),
-                            validator: (v) => (v == null || v == 'Select') ? 'Required' : null,
-                          ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: SparshSpacing.md),
+  List<Widget> _buildDynamicFields() {
+    final config = activityFieldConfig[_selectedActivityType] ?? [];
+    return config.map((field) {
+      if (field['key'] == 'productName') {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildDropdownField(
+              field['label']!,
+              _selectedProductName,
+              _productNames,
+              (val) => setState(() => _selectedProductName = val),
+              isLoading: _isLoadingProductNames,
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      } else if (field['key'] == 'quality') {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildDropdownField(
+              field['label']!,
+              _qualityItem,
+              _qualityOptions,
+              (val) => setState(() => _qualityItem = val),
+              isLoading: _isLoadingQualityOptions,
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      } else if (field['key'] == 'status') {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildDropdownField(
+              field['label']!,
+              _statusItem,
+              _statusOptions,
+              (val) => setState(() => _statusItem = val),
+              isLoading: _isLoadingStatusOptions,
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      } else {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildTextField(
+              field['label']!,
+              _controllers[field['key']!]!,
+              keyboardType:
+                  field['key'] == 'potential' || field['key'] == 'mobile'
+                      ? TextInputType.number
+                      : TextInputType.text,
+            ),
+            const SizedBox(height: 16),
+          ],
+        );
+      }
+    }).toList();
+  }
 
-              // Potential & Applicator Section
-              _sectionContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildLabel('Potential (MT)'),
-                    _buildTextField(
-                      'Enter Potential',
-                      _potentialController,
-                      keyboardType: TextInputType.number,
-                      validator: (v) {
-                        if (v == null || v.isEmpty) return 'Required';
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    _buildLabel('Applicator Name'),
-                    _buildTextField(
-                      'Enter Applicator Name',
-                      _applicatorController,
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: SparshSpacing.md),
+  Widget _buildTextField(
+    String label,
+    TextEditingController controller, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Enter $label',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+          ),
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
 
-              // Quality & Status Section
-              _sectionContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildLabel('Quality of Sample'),
-                    _buildDropdown(
-                      value: _qualityItem,
-                      items: _qualityOptions,
-                      onChanged: (v) => setState(() => _qualityItem = v),
-                      validator: (v) => (v == null || v == 'Select') ? 'Required' : null,
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    _buildLabel('Status of Sample'),
-                    _buildDropdown(
-                      value: _statusItem,
-                      items: _statusOptions,
-                      onChanged: (v) => setState(() => _statusItem = v),
-                      validator: (v) => (v == null || v == 'Select') ? 'Required' : null,
-                    ),
-                  ],
+  List<Widget> _buildImageUploadSection() {
+    List<Widget> widgets = List.generate(_selectedImages.length, (i) {
+      final file = _selectedImages[i];
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: file != null ? Colors.green : Colors.grey[300]!,
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Document ${i + 1}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                 ),
-              ),
-              const SizedBox(height: SparshSpacing.md),
-
-              // Contact & Mobile Section
-              _sectionContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildLabel('Contact Name'),
-                    _buildTextField(
-                      'Enter Contact Name',
-                      _contactNameController,
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                const Spacer(),
+                if (file != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
                     ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    _buildLabel('Mobile Number'),
-                    _buildTextField(
-                      'Enter Mobile Number',
-                      _mobileController,
-                      keyboardType: TextInputType.phone,
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: SparshSpacing.md),
-
-              // Supporting Documents Section
-              _sectionContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.photo_library_rounded,
-                          color: SparshTheme.primaryBlueAccent,
-                          size: SparshIconSize.lg,
-                        ),
-                        SizedBox(width: SparshSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            'Supporting Documents',
-                            style: SparshTypography.bodyBold,
+                        Icon(Icons.check_circle, color: Colors.green, size: 16),
+                        SizedBox(width: 4),
+                        Text(
+                          'Uploaded',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 13,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    ...List.generate(
-                      _selectedImages.length,
-                      (idx) => _buildImageRow(idx),
-                    ),
-                    if (_selectedImages.length < 3)
-                      Center(
-                        child: TextButton.icon(
-                          onPressed: _addImageField,
-                          icon: const Icon(Icons.add_photo_alternate),
-                          label: const Text('Add More Image'),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: SparshSpacing.lg),
-
-              // Submit Buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _onSubmit(exitAfter: false),
-                      child: Text(_processItem == 'Update' ? 'Update & New' : 'Submit & New'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (file != null)
+              GestureDetector(
+                onTap: () => _showImageDialog(file),
+                child: Container(
+                  height: 120,
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    image: DecorationImage(
+                      image: FileImage(file),
+                      fit: BoxFit.cover,
                     ),
                   ),
-                  const SizedBox(width: SparshSpacing.sm),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _onSubmit(exitAfter: true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: SparshTheme.successGreen,
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: Container(
+                      margin: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        shape: BoxShape.circle,
                       ),
-                      child: Text(_processItem == 'Update' ? 'Update & Exit' : 'Submit & Exit'),
+                      child: const Icon(
+                        Icons.zoom_in,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _pickImage(i),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      side: const BorderSide(color: Colors.blue),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          file != null ? Icons.refresh : Icons.upload_file,
+                          size: 18,
+                          color: Colors.blue,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          file != null ? 'Replace' : 'Upload',
+                          style: TextStyle(
+                            color: Colors.blue,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (file != null) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _showImageDialog(file),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        side: const BorderSide(color: Colors.green),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.visibility, size: 18, color: Colors.green),
+                          SizedBox(width: 8),
+                          Text(
+                            'View',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                if (_selectedImages.length > 1) ...[
+                  const SizedBox(width: 12),
+                  IconButton(
+                    onPressed: () => _removeImageRow(i),
+                    icon: const Icon(Icons.remove_circle, color: Colors.red),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      );
+    });
+
+    widgets.add(
+      Padding(
+        padding: const EdgeInsets.only(top: 8.0),
+        child: Align(
+          alignment: Alignment.center,
+          child: OutlinedButton.icon(
+            onPressed: _addImageRow,
+            icon: const Icon(Icons.add_photo_alternate, color: Colors.blue),
+            label: const Text(
+              'Add Document',
+              style: TextStyle(color: Colors.blue),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.blue),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return widgets;
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Sampling Help',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all the required fields to record your site visit for sampling. '
+                    'Make sure to select the correct process type (Add/Update) and provide accurate sampling details.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }

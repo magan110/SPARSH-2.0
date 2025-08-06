@@ -2,15 +2,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:dropdown_search/dropdown_search.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'dsr_entry.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:learning2/core/constants/fonts.dart';
 import 'package:learning2/core/theme/app_theme.dart';
 import 'package:learning2/core/utils/document_number_storage.dart';
+import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
 
 class MeetingsWithContractor extends StatefulWidget {
@@ -20,11 +19,18 @@ class MeetingsWithContractor extends StatefulWidget {
   State<MeetingsWithContractor> createState() => _MeetingsWithContractorState();
 }
 
-class _MeetingsWithContractorState extends State<MeetingsWithContractor> {
+class _MeetingsWithContractorState extends State<MeetingsWithContractor>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+  final _formKey = GlobalKey<FormState>();
+
+  // Geolocation
+  Position? _currentPosition;
+
   // Process type dropdown state
   String? _processItem = 'Select';
-  List<String> _processdropdownItems = ['Select'];
-  bool _isLoadingProcessTypes = true;
+  List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
   String? _processTypeError;
 
   // Document-number dropdown state
@@ -32,61 +38,144 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor> {
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
 
+  // Dynamic data
   List<Map<String, String>> _areaCodes = [];
+  List<Map<String, String>> _purchasers = [];
+  List<Map<String, String>> _purchaserCodes = [];
+
+  // Selected values
   String? _selectedAreaCode = 'Select';
-  bool _isLoadingAreaCodes = true;
-
-  // Purchaser dropdown state
-  List<Map<String, String>> _purchasers = [{'code': 'Select', 'description': 'Select'}];
-  String? _selectedPurchaserDescription = 'Select';
-  String? _selectedPurchaserCodeValue;
-  bool _isLoadingPurchasers = false;
-
-  // Purchaser code dropdown state
-  List<Map<String, String>> _purchaserCodes = [{'code': 'Select', 'name': 'Select'}];
+  String? _selectedPurchaser = 'Select';
   String? _selectedPurchaserCode = 'Select';
+
+  // Loading states
+  bool _isLoadingAreaCodes = true;
+  bool _isLoadingPurchasers = false;
   bool _isLoadingPurchaserCodes = false;
 
-  final TextEditingController _submissionDateController = TextEditingController();
-  final TextEditingController _reportDateController     = TextEditingController();
-  DateTime? _selectedSubmissionDate;
-  DateTime? _selectedReportDate;
+  final TextEditingController _submissionDateController =
+      TextEditingController();
+  final TextEditingController _reportDateController = TextEditingController();
+  final TextEditingController _codeController = TextEditingController();
 
-  final List<int> _uploadRows    = [0];
-  final ImagePicker _picker      = ImagePicker();
-  final List<File?> _selectedImages = [null];
-  
+  // Dynamic field config for activity type
+  final Map<String, List<Map<String, String>>> activityFieldConfig = {
+    "Meetings with Contractor / Stockist": [
+      {"label": "New Orders Received", "key": "newOrders", "rem": "dsrRem01"},
+      {
+        "label": "Ugai Recovery Plans",
+        "key": "ugaiRecovery",
+        "rem": "dsrRem02",
+      },
+      {
+        "label": "Any Purchaser Grievances",
+        "key": "grievance",
+        "rem": "dsrRem03",
+      },
+      {"label": "Any Other Points", "key": "otherPoint", "rem": "dsrRem04"},
+    ],
+  };
+
+  // Dynamic controllers for text fields
+  final Map<String, TextEditingController> _controllers = {};
+
+  // Action remarks
+  final List<int> _actionRows = [0];
+  final List<TextEditingController> _actionPointsControllers = [
+    TextEditingController(),
+  ];
+  final List<TextEditingController> _closerDateControllers = [
+    TextEditingController(),
+  ];
+
+  List<File?> _selectedImages = [null];
   final _documentNumberController = TextEditingController();
   String? _documentNumber;
-  
-  // Controllers for Action Remarks rows
-  final List<TextEditingController> _actionPointsControllers = [TextEditingController()];
-  final List<TextEditingController> _closerDateControllers = [TextEditingController()];
-
-  // Product dropdown state
-  String? _selectedProduct = 'Select';
-  // Add controllers for text fields that lose state
-  final TextEditingController _newOrdersController = TextEditingController();
-  final TextEditingController _ugaiRecoveryController = TextEditingController();
-  final TextEditingController _grievanceController = TextEditingController();
-  final TextEditingController _otherPointsController = TextEditingController();
-  // Coordinate controllers (if you choose to display these)
-
-  final _formKey = GlobalKey<FormState>();
+  String get _selectedActivityType => "Meetings with Contractor / Stockist";
 
   @override
   void initState() {
     super.initState();
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
+    _fadeController.forward();
+
+    _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
     _fetchAreaCodes();
     _fetchPurchasers();
     _setSubmissionDateToToday();
+    _initControllersForActivity(_selectedActivityType);
   }
 
-  // Load document number when screen initializes
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _submissionDateController.dispose();
+    _reportDateController.dispose();
+    _codeController.dispose();
+    _documentNumberController.dispose();
+
+    // Dispose dynamic controllers
+    for (final c in _controllers.values) {
+      c.dispose();
+    }
+
+    // Dispose action remarks controllers
+    for (final c in _actionPointsControllers) {
+      c.dispose();
+    }
+    for (final c in _closerDateControllers) {
+      c.dispose();
+    }
+
+    super.dispose();
+  }
+
+  Future<void> _initGeolocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) throw Exception('Location services disabled.');
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception('Location permissions denied.');
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Location permissions permanently denied.');
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      setState(() {
+        _currentPosition = pos;
+      });
+    } catch (e) {
+      debugPrint('Error getting location: $e');
+    }
+  }
+
+  void _initControllersForActivity(String activityType) {
+    final config = activityFieldConfig[activityType] ?? [];
+    for (final field in config) {
+      _controllers[field['key']!] = TextEditingController();
+    }
+  }
+
   Future<void> _loadInitialDocumentNumber() async {
-    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(DocumentNumberKeys.meetingsContractor);
+    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(
+      DocumentNumberKeys.meetingsContractor,
+    );
     if (savedDocNumber != null) {
       setState(() {
         _documentNumber = savedDocNumber;
@@ -94,30 +183,375 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor> {
     }
   }
 
-  @override
-  void dispose() {
-    _submissionDateController.dispose();
-    _reportDateController.dispose();
-   
-    _documentNumberController.dispose();
-    // Dispose new controllers
-    _newOrdersController.dispose();
-    _ugaiRecoveryController.dispose();
-    _grievanceController.dispose();
-    _otherPointsController.dispose();
-    // Dispose Action Remarks controllers
-    for (var controller in _actionPointsControllers) {
-      controller.dispose();
+  Future<void> _fetchProcessTypes() async {
+    setState(() {
+      _processTypeError = null;
+    });
+    setState(() {
+      _processdropdownItems = ['Select', 'Add', 'Update'];
+      _processItem = 'Select';
+    });
+  }
+
+  Future<void> _fetchDocumentNumbers() async {
+    setState(() {
+      _loadingDocs = true;
+      _documentNumbers = [];
+      _selectedDocuNumb = null;
+    });
+    final uri = Uri.parse(
+      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=13',
+    );
+    try {
+      final resp = await http.get(uri);
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as List;
+        setState(() {
+          _documentNumbers =
+              data
+                  .map((e) {
+                    return (e['DocuNumb'] ??
+                            e['docuNumb'] ??
+                            e['DocumentNumber'] ??
+                            e['documentNumber'] ??
+                            '')
+                        .toString();
+                  })
+                  .where((s) => s.isNotEmpty)
+                  .toList();
+        });
+      }
+    } catch (_) {
+      // ignore errors
+    } finally {
+      setState(() {
+        _loadingDocs = false;
+      });
     }
-    for (var controller in _closerDateControllers) {
-      controller.dispose();
+  }
+
+  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
+    final uri = Uri.parse(
+      'http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
+    );
+    try {
+      final resp = await http.get(uri);
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        final config = activityFieldConfig[_selectedActivityType] ?? [];
+        for (final field in config) {
+          _controllers[field['key']!]?.text = data[field['rem']] ?? '';
+        }
+        setState(() {
+          _submissionDateController.text =
+              data['SubmissionDate']?.toString()?.substring(0, 10) ?? '';
+          _reportDateController.text =
+              data['ReportDate']?.toString()?.substring(0, 10) ?? '';
+          _selectedAreaCode = data['AreaCode'] ?? 'Select';
+          _selectedPurchaser = data['Purchaser'] ?? 'Select';
+          _selectedPurchaserCode = data['PurchaserCode'] ?? 'Select';
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchAreaCodes() async {
+    try {
+      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getAreaCodes');
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is List) {
+          if (data.isEmpty) {
+            setState(() {
+              _areaCodes = [
+                {'code': 'Select', 'name': 'Select'},
+              ];
+              _isLoadingAreaCodes = false;
+            });
+            return;
+          }
+
+          final processedAreaCodes =
+              data
+                  .map((item) {
+                    final code =
+                        item['Code']?.toString().trim() ??
+                        item['code']?.toString().trim() ??
+                        item['AreaCode']?.toString().trim() ??
+                        '';
+                    final name =
+                        item['Name']?.toString().trim() ??
+                        item['name']?.toString().trim() ??
+                        code;
+                    return {'code': code, 'name': name};
+                  })
+                  .where((item) {
+                    return item['code']!.isNotEmpty && item['code'] != '   ';
+                  })
+                  .toList();
+
+          final seenCodes = <String>{};
+          final uniqueAreaCodes = [
+            {'code': 'Select', 'name': 'Select'},
+            ...processedAreaCodes.where((item) {
+              if (seenCodes.contains(item['code'])) return false;
+              seenCodes.add(item['code']!);
+              return true;
+            }),
+          ];
+
+          setState(() {
+            _areaCodes = uniqueAreaCodes;
+            _isLoadingAreaCodes = false;
+            final validCodes = _areaCodes.map((a) => a['code']).toSet();
+            if (_selectedAreaCode == null ||
+                !validCodes.contains(_selectedAreaCode)) {
+              _selectedAreaCode = 'Select';
+            }
+          });
+        } else {
+          throw Exception(
+            'Invalid response format: expected List but got ${data.runtimeType}',
+          );
+        }
+      } else if (response.statusCode == 404) {
+        setState(() {
+          _areaCodes = [
+            {'code': 'Select', 'name': 'Select'},
+          ];
+          _isLoadingAreaCodes = false;
+        });
+      } else {
+        throw Exception('Failed to fetch area codes: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _areaCodes = [
+          {'code': 'Select', 'name': 'Select'},
+        ];
+        _isLoadingAreaCodes = false;
+      });
     }
-    super.dispose();
+  }
+
+  Future<void> _fetchPurchasers() async {
+    setState(() {
+      _isLoadingPurchasers = true;
+      _selectedPurchaser = 'Select';
+      _selectedPurchaserCode = 'Select';
+      _purchaserCodes = [
+        {'code': 'Select', 'name': 'Select'},
+      ];
+    });
+
+    try {
+      final url = Uri.parse(
+        'http://192.168.36.25/api/DsrTry/getPurchaserOptions',
+      );
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is List) {
+          final seenCodes = <String>{};
+          final uniquePurchasers = [
+            {'code': 'Select', 'name': 'Select'},
+            ...data
+                .map(
+                  (item) => {
+                    'code':
+                        item['Code']?.toString() ??
+                        item['code']?.toString() ??
+                        '',
+                    'name':
+                        item['Description']?.toString() ??
+                        item['description']?.toString() ??
+                        '',
+                  },
+                )
+                .where((item) {
+                  if (item['code']!.isEmpty || seenCodes.contains(item['code']))
+                    return false;
+                  seenCodes.add(item['code']!);
+                  return true;
+                }),
+          ];
+
+          setState(() {
+            _purchasers = uniquePurchasers;
+            _isLoadingPurchasers = false;
+            final validCodes = _purchasers.map((p) => p['code']).toSet();
+            if (_selectedPurchaser == null ||
+                !validCodes.contains(_selectedPurchaser)) {
+              _selectedPurchaser = 'Select';
+            }
+          });
+        } else {
+          throw Exception(
+            'Invalid response format: expected List but got ${data.runtimeType}',
+          );
+        }
+      } else {
+        throw Exception(
+          'Failed to fetch purchaser options: ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _purchasers = [
+          {'code': 'Select', 'name': 'Select'},
+        ];
+        _isLoadingPurchasers = false;
+      });
+    }
+  }
+
+  Future<void> _fetchPurchaserCodes(String purchaserCode) async {
+    if (purchaserCode == 'Select' || _selectedAreaCode == 'Select') {
+      setState(() {
+        _purchaserCodes = [
+          {'code': 'Select', 'name': 'Select'},
+        ];
+        _selectedPurchaserCode = 'Select';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingPurchaserCodes = true;
+      _selectedPurchaserCode = 'Select';
+    });
+
+    try {
+      final url = Uri.parse(
+        'http://192.168.36.25/api/DsrTry/getPurchaserCode',
+      ).replace(
+        queryParameters: {
+          'areaCode': _selectedAreaCode,
+          'purchaserFlag': purchaserCode,
+        },
+      );
+
+      final response = await http.get(url);
+
+      if (response.body == null || response.body.trim().isEmpty) {
+        setState(() {
+          _purchaserCodes = [
+            {'code': 'Select', 'name': 'Select'},
+          ];
+          _isLoadingPurchaserCodes = false;
+        });
+        return;
+      }
+
+      dynamic data;
+      try {
+        data = jsonDecode(response.body);
+      } catch (e) {
+        setState(() {
+          _purchaserCodes = [
+            {'code': 'Select', 'name': 'Select'},
+          ];
+          _isLoadingPurchaserCodes = false;
+        });
+        return;
+      }
+
+      if (data is Map &&
+          (data.containsKey('purchaserCodes') ||
+              data.containsKey('PurchaserCodes'))) {
+        final purchaserCodesList =
+            (data['purchaserCodes'] ?? data['PurchaserCodes']) as List;
+        final purchaserCodes =
+            purchaserCodesList
+                .map(
+                  (item) => {
+                    'code':
+                        (item['code'] ?? item['Code'] ?? '').toString().trim(),
+                    'name':
+                        (item['name'] ??
+                                item['Name'] ??
+                                item['code'] ??
+                                item['Code'] ??
+                                '')
+                            .toString()
+                            .trim(),
+                  },
+                )
+                .where((item) => item['code']!.isNotEmpty)
+                .toList();
+
+        if (purchaserCodes.isNotEmpty) {
+          setState(() {
+            _purchaserCodes = [
+              {'code': 'Select', 'name': 'Select'},
+              ...purchaserCodes,
+            ];
+            _isLoadingPurchaserCodes = false;
+          });
+        } else {
+          setState(() {
+            _purchaserCodes = [
+              {'code': 'Select', 'name': 'Select'},
+            ];
+            _isLoadingPurchaserCodes = false;
+          });
+        }
+      } else {
+        throw Exception(
+          'Invalid response format: expected Map with PurchaserCodes but got ${data.runtimeType}. Data: $data',
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _purchaserCodes = [
+          {'code': 'Select', 'name': 'Select'},
+        ];
+        _isLoadingPurchaserCodes = false;
+      });
+    }
+  }
+
+  void _onProcessTypeChanged(String? value) {
+    setState(() {
+      _processItem = value;
+    });
+    if (value == 'Update') {
+      _fetchDocumentNumbers();
+    }
+  }
+
+  void _onAreaCodeChanged(String? value) {
+    setState(() {
+      _selectedAreaCode = value;
+      _selectedPurchaser = 'Select';
+      _selectedPurchaserCode = 'Select';
+    });
+    if (value != null && value != 'Select') {
+      _fetchPurchasers();
+    }
+  }
+
+  void _onPurchaserChanged(String? value) {
+    setState(() {
+      _selectedPurchaser = value;
+      _selectedPurchaserCode = 'Select';
+    });
+    if (value != null && value != 'Select') {
+      _fetchPurchaserCodes(value);
+    }
+  }
+
+  void _onPurchaserCodeChanged(String? value) {
+    setState(() {
+      _selectedPurchaserCode = value;
+    });
   }
 
   void _setSubmissionDateToToday() {
     final today = DateTime.now();
-    _selectedSubmissionDate = today;
     _submissionDateController.text = DateFormat('yyyy-MM-dd').format(today);
   }
 
@@ -126,77 +560,69 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor> {
     final threeDaysAgo = now.subtract(const Duration(days: 3));
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedReportDate ?? now,
+      initialDate: now,
       firstDate: DateTime(now.year - 10),
       lastDate: now,
-      builder: (context, child) => Theme(
-        data: ThemeData.light().copyWith(
-          colorScheme: const ColorScheme.light(
-            primary: SparshTheme.primaryBlueAccent,
-            onPrimary: Colors.white,
-            onSurface: SparshTheme.textPrimary,
-          ),
-          dialogTheme: const DialogThemeData(backgroundColor: Colors.white),
-        ),
-        child: child!,
-      ),
     );
+
     if (picked != null) {
       if (picked.isBefore(threeDaysAgo)) {
         showDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Please Put Valid DSR Date.'),
-            content: const Text(
-              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.'
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Please Put Valid DSR Date.'),
+                content: const Text(
+                  'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception Entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const DsrExceptionEntryPage(),
+                        ),
+                      );
+                    },
+                    child: const Text('Go to Exception Entry'),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const DsrExceptionEntryPage()),
-                  );
-                },
-                child: const Text('Go to Exception Entry'),
-              ),
-            ],
-          ),
         );
         return;
       }
       setState(() {
-        _selectedReportDate = picked;
         _reportDateController.text = DateFormat('yyyy-MM-dd').format(picked);
       });
     }
   }
 
-  void _addRow() {
+  void _addActionRow() {
     setState(() {
-      _uploadRows.add(_uploadRows.length);
-      _selectedImages.add(null);
+      _actionRows.add(_actionRows.length);
       _actionPointsControllers.add(TextEditingController());
       _closerDateControllers.add(TextEditingController());
     });
   }
 
-  void _removeRow() {
-    if (_uploadRows.length <= 1) return;
+  void _removeActionRow() {
+    if (_actionRows.length <= 1) return;
     setState(() {
-      _uploadRows.removeLast();
-      _selectedImages.removeLast();
+      _actionRows.removeLast();
       _actionPointsControllers.removeLast();
       _closerDateControllers.removeLast();
     });
   }
 
   Future<void> _pickImage(int index) async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    final pickedFile = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+    );
     if (pickedFile != null) {
       setState(() {
         _selectedImages[index] = File(pickedFile.path);
@@ -204,98 +630,122 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor> {
     }
   }
 
+  void _addImageRow() {
+    setState(() {
+      _selectedImages.add(null);
+    });
+  }
+
+  void _removeImageRow(int index) {
+    if (_selectedImages.length <= 1) return;
+    setState(() {
+      _selectedImages.removeAt(index);
+    });
+  }
+
   void _showImageDialog(File imageFile) {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.6,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              fit: BoxFit.contain,
-              image: FileImage(imageFile),
+      builder:
+          (_) => Dialog(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  fit: BoxFit.contain,
+                  image: FileImage(imageFile),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 
-  Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    final url = Uri.parse('http://192.168.36.25/api/DsrTry');
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(dsrData),
-    );
-    print('Status: ${response.statusCode}');
-    print('Body: ${response.body}');
-    if (response.statusCode == 201) {
-      print('✅ Data inserted successfully!');
-    } else {
-      print('❌ Data NOT inserted! Error: ${response.body}');
-    }
-  }
-
-  void _onSubmit({required bool exitAfter}) async {
+  Future<void> _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
+    if (_currentPosition == null) await _initGeolocation();
 
-    final dsrData = {
-      'ActivityType': 'Meetings with Contractor / Stockist',
-      'SubmissionDate': _selectedSubmissionDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      'ReportDate': _selectedReportDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
+    final dsrData = <String, dynamic>{
+      'ActivityType': _selectedActivityType,
+      'SubmissionDate': _submissionDateController.text,
+      'ReportDate': _reportDateController.text,
+      'CreateId': '2948',
       'AreaCode': _selectedAreaCode ?? '',
-      'Purchaser': _selectedPurchaserCodeValue ?? '',
+      'Purchaser': _selectedPurchaser ?? '',
       'PurchaserCode': _selectedPurchaserCode ?? '',
-      'dsrRem01': _newOrdersController.text,
-      'dsrRem02': _ugaiRecoveryController.text,
-      'dsrRem03': _grievanceController.text,
-      'dsrRem04': _otherPointsController.text,
-      'dsrRem05': '',
-      'dsrRem06': '',
-      'dsrRem07': '',
-      'dsrRem08': '',
       'DsrParam': '13',
       'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
       'ProcessType': _processItem == 'Update' ? 'U' : 'A',
+      'latitude': _currentPosition?.latitude.toString() ?? '',
+      'longitude': _currentPosition?.longitude.toString() ?? '',
     };
+
+    final config = activityFieldConfig[_selectedActivityType] ?? [];
+    for (final field in config) {
+      dsrData[field['rem']!] = _controllers[field['key']!]?.text ?? '';
+    }
+
+    // Add action remarks data
+    for (int i = 0; i < _actionRows.length; i++) {
+      dsrData['dsrRem0${i + 5}'] = _actionPointsControllers[i].text;
+      dsrData['dsrRem0${i + 9}'] = _closerDateControllers[i].text;
+    }
+
+    final imageData = <String, dynamic>{};
+    for (int i = 0; i < _selectedImages.length; i++) {
+      final file = _selectedImages[i];
+      if (file != null) {
+        final imageBytes = await file.readAsBytes();
+        final base64Image =
+            'data:image/jpeg;base64,${base64Encode(imageBytes)}';
+        imageData['image${i + 1}'] = base64Image;
+      }
+    }
+    dsrData['Images'] = imageData;
 
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/' + (_processItem == 'Update' ? 'update' : '')
+        'http://192.168.36.25/api/DsrTry/' +
+            (_processItem == 'Update' ? 'update' : ''),
       );
-      final resp = _processItem == 'Update'
-          ? await http.put(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            )
-          : await http.post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            );
 
-      final success = (_processItem == 'Update' && resp.statusCode == 204) ||
-                      (_processItem != 'Update' && resp.statusCode == 201);
+      final resp =
+          _processItem == 'Update'
+              ? await http.put(
+                url,
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(dsrData),
+              )
+              : await http.post(
+                url,
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(dsrData),
+              );
+
+      final success =
+          (_processItem == 'Update' && resp.statusCode == 204) ||
+          (_processItem != 'Update' && resp.statusCode == 201);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success
-              ? exitAfter
-                  ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                  : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-              : 'Error: ${resp.body}'),
+          content: Text(
+            success
+                ? exitAfter
+                    ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
+                    : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
+                : 'Error: ${resp.body}',
+          ),
           backgroundColor: success ? Colors.green : Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
       );
+
       if (success) {
         if (exitAfter) {
           Navigator.of(context).pop();
         } else {
-          _resetForm();
+          _clearForm();
         }
       }
     } catch (e) {
@@ -309,229 +759,72 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor> {
     }
   }
 
-  // Add a method to reset the form (clear document number)
-  void _resetForm() {
+  void _clearForm() {
     setState(() {
-      _documentNumber = null;
-      _documentNumberController.clear();
       _processItem = 'Select';
-      // Clear other form fields as needed
-    });
-    DocumentNumberStorage.clearDocumentNumber(DocumentNumberKeys.meetingsContractor); // Clear from persistent storage
-  }
-
-  // Update fetch process types to store code and description
-  Future<void> _fetchProcessTypes() async {
-    setState(() { _isLoadingProcessTypes = true; _processTypeError = null; });
-    try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getProcessTypes');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        List processTypesList = [];
-        if (data is List) {
-          processTypesList = data;
-        } else if (data is Map &&
-            (data['ProcessTypes'] != null || data['processTypes'] != null)) {
-          processTypesList =
-              (data['ProcessTypes'] ?? data['processTypes']) as List;
-        }
-        final processTypes = processTypesList
-            .map<String>((type) {
-              if (type is Map) {
-                return type['Description']?.toString() ??
-                    type['description']?.toString() ??
-                    '';
-              } else {
-                return type.toString();
-              }
-            })
-            .where((desc) => desc.isNotEmpty)
-            .toList();
-        setState(() {
-          _processdropdownItems = ['Select', ...processTypes];
-          _processItem = 'Select';
-          _isLoadingProcessTypes = false;
-        });
-      } else {
-        throw Exception('Failed to load process types.');
-      }
-    } catch (e) {
-      setState(() {
-        _processdropdownItems = ['Select'];
-        _processItem = 'Select';
-        _isLoadingProcessTypes = false;
-        _processTypeError = 'Failed to load process types.';
-      });
-    }
-  }
-
-  Future<void> _fetchAreaCodes() async {
-    setState(() { _isLoadingAreaCodes = true; });
-    try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getAreaCodes');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is List) {
-          final processedAreaCodes = data.map((item) {
-            final code = item['Code']?.toString() ?? item['code']?.toString() ?? item['AreaCode']?.toString() ?? '';
-            final name = item['Name']?.toString() ?? item['name']?.toString() ?? code;
-            return {'code': code, 'name': name};
-          }).where((item) => item['code']!.isNotEmpty && item['code'] != '   ').toList();
-          // Remove duplicates
-          final seenCodes = <String>{};
-          final uniqueAreaCodes = [
-            {'code': 'Select', 'name': 'Select'},
-            ...processedAreaCodes.where((item) {
-              if (seenCodes.contains(item['code'])) return false;
-              seenCodes.add(item['code']!);
-              return true;
-            })
-          ];
-          setState(() {
-            _areaCodes = uniqueAreaCodes;
-            _isLoadingAreaCodes = false;
-            // Reset selected value if not present
-            final validCodes = _areaCodes.map((a) => a['code']).toSet();
-            if (_selectedAreaCode == null || !validCodes.contains(_selectedAreaCode)) {
-              _selectedAreaCode = 'Select';
-            }
-          });
-        } else {
-          setState(() {
-            _areaCodes = [{'code': 'Select', 'name': 'Select'}];
-            _isLoadingAreaCodes = false;
-          });
-        }
-      } else {
-        setState(() {
-          _areaCodes = [{'code': 'Select', 'name': 'Select'}];
-          _isLoadingAreaCodes = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _areaCodes = [{'code': 'Select', 'name': 'Select'}];
-        _isLoadingAreaCodes = false;
-      });
-    }
-  }
-
-  // Fetch Purchaser options
-  Future<void> _fetchPurchasers() async {
-    setState(() { _isLoadingPurchasers = true; });
-    try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getPurchaserOptions');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is List) {
-          final purchasers = [
-            {'code': 'Select', 'description': 'Select'},
-            ...data.map<Map<String, String>>((item) => {
-              'code': item['code']?.toString() ?? '',
-              'description': item['description']?.toString() ?? '',
-            }).where((item) => item['code']!.isNotEmpty && item['description']!.isNotEmpty)
-          ];
-          setState(() {
-            _purchasers = purchasers;
-            _isLoadingPurchasers = false;
-          });
-        }
-      } else {
-        setState(() {
-          _purchasers = [{'code': 'Select', 'description': 'Select'}];
-          _isLoadingPurchasers = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _purchasers = [{'code': 'Select', 'description': 'Select'}];
-        _isLoadingPurchasers = false;
-      });
-    }
-  }
-
-  // Fetch Purchaser Codes
-  Future<void> _fetchPurchaserCodes(String areaCode, String purchaserFlag) async {
-    if (areaCode == 'Select' || purchaserFlag == 'Select') {
-      setState(() {
-        _purchaserCodes = [{'code': 'Select', 'name': 'Select'}];
-        _selectedPurchaserCode = 'Select';
-      });
-      return;
-    }
-    setState(() {
-      _isLoadingPurchaserCodes = true;
+      _selectedDocuNumb = null;
+      _submissionDateController.clear();
+      _reportDateController.clear();
+      _selectedAreaCode = 'Select';
+      _selectedPurchaser = 'Select';
       _selectedPurchaserCode = 'Select';
-    });
-    try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getPurchaserCode?areaCode=$areaCode&purchaserFlag=$purchaserFlag');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is Map && (data.containsKey('purchaserCodes') || data.containsKey('PurchaserCodes'))) {
-          final purchaserCodesList = (data['purchaserCodes'] ?? data['PurchaserCodes']) as List;
-          final purchaserCodes = purchaserCodesList.map((item) => {
-            'code': (item['code'] ?? item['Code'] ?? '').toString().trim(),
-            'name': (item['name'] ?? item['Name'] ?? item['code'] ?? item['Code'] ?? '').toString().trim(),
-          }).where((item) => item['code']!.isNotEmpty).toList();
-          setState(() {
-            _purchaserCodes = [
-              {'code': 'Select', 'name': 'Select'},
-              ...purchaserCodes
-            ];
-            _isLoadingPurchaserCodes = false;
-          });
-        } else {
-          setState(() {
-            _purchaserCodes = [{'code': 'Select', 'name': 'Select'}];
-            _isLoadingPurchaserCodes = false;
-          });
-        }
-      } else {
-        setState(() {
-          _purchaserCodes = [{'code': 'Select', 'name': 'Select'}];
-          _isLoadingPurchaserCodes = false;
-        });
+      _codeController.clear();
+      _selectedImages = [null];
+
+      // Clear dynamic controllers
+      for (final c in _controllers.values) {
+        c.clear();
       }
-    } catch (e) {
-      setState(() {
-        _purchaserCodes = [{'code': 'Select', 'name': 'Select'}];
-        _isLoadingPurchaserCodes = false;
-      });
-    }
+
+      // Reset action remarks
+      _actionRows.clear();
+      _actionRows.add(0);
+      for (final c in _actionPointsControllers) {
+        c.dispose();
+      }
+      for (final c in _closerDateControllers) {
+        c.dispose();
+      }
+      _actionPointsControllers.clear();
+      _actionPointsControllers.add(TextEditingController());
+      _closerDateControllers.clear();
+      _closerDateControllers.add(TextEditingController());
+    });
+    _formKey.currentState?.reset();
   }
 
-  // Remove local generateDocumentNumber and add backend fetch logic
   Future<String?> _fetchDocumentNumberFromServer() async {
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/generateDocumentNumber');
+      final url = Uri.parse(
+        'http://192.168.36.25/api/DsrTry/generateDocumentNumber',
+      );
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode('KKR'), // Hardcoded to KKR
+        body: jsonEncode(_selectedAreaCode ?? 'KKR'),
       );
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         String? documentNumber;
         if (data is Map<String, dynamic>) {
-          documentNumber = data['DocumentNumber'] as String?;
-          if (documentNumber == null) documentNumber = data['documentNumber'] as String?;
-          if (documentNumber == null) documentNumber = data['docuNumb'] as String?;
+          documentNumber =
+              data['documentNumber'] ??
+              data['DocumentNumber'] ??
+              data['docNumber'] ??
+              data['DocNumber'];
         } else if (data is String) {
           documentNumber = data;
         }
-        if (documentNumber != null && documentNumber.isNotEmpty) {
-          // Save to persistent storage
-          if (documentNumber != null) {
-            await DocumentNumberStorage.saveDocumentNumber(DocumentNumberKeys.meetingsContractor, documentNumber);
-          }
-          return documentNumber;
-        } else {
-          throw Exception('Invalid document number received from server');
+
+        if (documentNumber != null) {
+          await DocumentNumberStorage.saveDocumentNumber(
+            DocumentNumberKeys.meetingsContractor,
+            documentNumber,
+          );
         }
+
+        return documentNumber;
       } else {
         return null;
       }
@@ -540,802 +833,989 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor> {
     }
   }
 
-  // Update process type change handler to use code/description
-  void _onProcessTypeChanged(String? code) {
-    setState(() {
-      _processItem = code;
-    });
-    if (code == "U") {
-      // Only generate document number if we don't already have one
-      if (_documentNumber == null) {
-        setState(() {
-          _documentNumberController.text = "Generating...";
-        });
-        try {
-          _fetchDocumentNumberFromServer().then((docNumber) {
-            setState(() {
-              _documentNumber = docNumber;
-              _documentNumberController.text = docNumber ?? "";
-            });
-          }).catchError((e) {
-            setState(() {
-              _processItem = 'Select';
-              _documentNumber = null;
-              _documentNumberController.clear();
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Failed to generate document number:  e.toString()}'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          });
-        } catch (e) {
-          setState(() {
-            _processItem = 'Select';
-            _documentNumber = null;
-            _documentNumberController.clear();
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to generate document number:  e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } else {
-        // If we already have a document number, just display it
-        setState(() {
-          _documentNumberController.text = _documentNumber!;
-        });
-      }
-    } else {
-      // For "Add" or any other process type, just clear the display but keep the document number in memory
-      setState(() {
-        _documentNumberController.text = "";
-      });
-    }
-  }
-  void _onAreaCodeChanged(String? value) {
-    setState(() {
-      _selectedAreaCode = value;
-      _selectedPurchaserDescription = 'Select';
-      _selectedPurchaserCodeValue = null;
-      _selectedPurchaserCode = 'Select';
-      _purchaserCodes = [{'code': 'Select', 'name': 'Select'}];
-    });
-    if (value != null && value != 'Select') {
-      // Optionally, you can refetch purchasers if they depend on area
-      //_fetchPurchasers();
-    }
-  }
-
-  void _onPurchaserChanged(String? desc) {
-    setState(() {
-      _selectedPurchaserDescription = desc;
-      final selected = _purchasers.firstWhere(
-        (item) => item['description'] == desc,
-        orElse: () => {'code': '', 'description': ''},
-      );
-      _selectedPurchaserCodeValue = selected['code'];
-      _selectedPurchaserCode = 'Select';
-      _purchaserCodes = [{'code': 'Select', 'name': 'Select'}];
-    });
-    if (_selectedPurchaserCodeValue != null && _selectedPurchaserCodeValue != 'Select' && _selectedAreaCode != null && _selectedAreaCode != 'Select') {
-      _fetchPurchaserCodes(_selectedAreaCode!, _selectedPurchaserCodeValue!);
-    }
-  }
-
-  void _onPurchaserCodeChanged(String? code) {
-    setState(() {
-      _selectedPurchaserCode = code;
-    });
-  }
-
-  // Fetch document numbers for Update
-  Future<void> _fetchDocumentNumbers() async {
-    setState(() {
-      _loadingDocs = true;
-      _documentNumbers = [];
-      _selectedDocuNumb = null;
-    });
-    final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=13' // Use correct param for this activity
-    );
-    try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers = data
-            .map((e) {
-              return (e['DocuNumb']
-                   ?? e['docuNumb']
-                   ?? e['DocumentNumber']
-                   ?? e['documentNumber']
-                   ?? '').toString();
-            })
-            .where((s) => s.isNotEmpty)
-            .toList();
-        });
-      }
-    } catch (_) {
-      // ignore errors
-    } finally {
-      setState(() { _loadingDocs = false; });
-    }
-  }
-
-  // Fetch details for a document number and populate fields
-  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse('http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
-    try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
-        setState(() {
-          _selectedAreaCode = data['AreaCode'] ?? 'Select';
-          _selectedPurchaserCodeValue = data['Purchaser'] ?? 'Select';
-          _selectedPurchaserCode = data['PurchaserCode'] ?? 'Select';
-          _newOrdersController.text = data['dsrRem01'] ?? '';
-          _ugaiRecoveryController.text = data['dsrRem02'] ?? '';
-          _grievanceController.text = data['dsrRem03'] ?? '';
-          _otherPointsController.text = data['dsrRem04'] ?? '';
-          if (data['SubmissionDate'] != null) {
-            _selectedSubmissionDate = DateTime.tryParse(data['SubmissionDate']);
-            if (_selectedSubmissionDate != null) {
-              _submissionDateController.text = DateFormat('yyyy-MM-dd').format(_selectedSubmissionDate!);
-            }
-          }
-          if (data['ReportDate'] != null) {
-            _selectedReportDate = DateTime.tryParse(data['ReportDate']);
-            if (_selectedReportDate != null) {
-              _reportDateController.text = DateFormat('yyyy-MM-dd').format(_selectedReportDate!);
-            }
-          }
-        });
-      }
-    } catch (_) {}
-  }
-
-  Widget _buildTextField(
-      String hintText, {
-        TextEditingController? controller,
-        TextInputType? keyboardType,
-        int maxLines = 1,
-        String? Function(String?)? validator,
-        bool readOnly = false,
-      }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      maxLines: maxLines,
-      readOnly: readOnly,
-      decoration: InputDecoration(
-        hintText: hintText,
-        hintStyle: const TextStyle(color: SparshTheme.textSecondary, fontSize: 16),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.md), borderSide: BorderSide.none),
-        filled: true,
-        fillColor: SparshTheme.cardBackground,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      ),
-      validator: validator,
-    );
-  }
-
-  Widget _buildDateField(
-      TextEditingController controller,
-      VoidCallback onTap,
-      String hintText,
-      ) {
-    return TextFormField(
-      controller: controller,
-      readOnly: true,
-      decoration: InputDecoration(
-        hintText: hintText,
-        hintStyle: const TextStyle(color: SparshTheme.textSecondary, fontSize: 16),
-        suffixIcon: IconButton(icon: const Icon(Icons.calendar_today, color: SparshTheme.primaryBlueAccent), onPressed: onTap),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.md), borderSide: BorderSide.none),
-        filled: true,
-        fillColor: SparshTheme.cardBackground,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      ),
-      onTap: onTap,
-      validator: (value) => (value == null || value.isEmpty) ? 'Please select a date' : null,
-    );
-  }
-
-  Widget _buildLabel(String text) => Text(
-    text,
-    style: SparshTypography.labelLarge.copyWith(color: SparshTheme.textPrimary),
-  );
-
-  Widget _buildDropdownField({
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-  }) {
-    return Container(
-      height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade300, width: 1),
-        color: Colors.white,
-      ),
-      child: DropdownButton<String>(
-        dropdownColor: Colors.white,
-        isExpanded: true,
-        underline: Container(),
-        value: value,
-        onChanged: onChanged,
-        items: items
-            .map((item) => DropdownMenuItem(value: item, child: Text(item, style: Fonts.body.copyWith(fontSize: 16, color: Colors.black87))))
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildSearchableDropdownField({
-    required String selected,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-    String? Function(String?)? validator,
-  }) =>
-      DropdownSearch<String>(
-        items: items,
-        selectedItem: selected,
-        onChanged: onChanged,
-        validator: validator,
-        popupProps: PopupProps.menu(
-          showSearchBox: true,
-          searchFieldProps: const TextFieldProps(
-            decoration: InputDecoration(
-              hintText: 'Search...',
-              hintStyle: TextStyle(color: Colors.black54),
-              fillColor: Colors.white,
-              filled: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.all(Radius.circular(8.0)),
-                borderSide: BorderSide(color: Colors.blueAccent),
-              ),
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            ),
-          ),
-          itemBuilder: (context, item, isSelected) => Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(item, style: Fonts.body.copyWith(color: Colors.black87)),
-          ),
-        ),
-        dropdownDecoratorProps: DropDownDecoratorProps(
-          dropdownSearchDecoration: InputDecoration(
-            hintText: 'Select',
-            filled: true,
-            fillColor: Colors.white,
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
-          ),
-        ),
-      );
-
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Scaffold(
-        backgroundColor: SparshTheme.scaffoldBackground,
-        appBar: AppBar(
-          leading: IconButton(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DsrEntry())),
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 22),
-          ),
-          title: Text(
-            'Meeting With Contractor',
-            style: SparshTypography.heading5.copyWith(color: Colors.white),
-            overflow: TextOverflow.ellipsis,
-          ),
-          backgroundColor: SparshTheme.primaryBlueAccent,
-          elevation: 0,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.only(bottomLeft: Radius.circular(15), bottomRight: Radius.circular(15)),
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.blue,
+        elevation: 0,
+        centerTitle: true,
+        title: const Text(
+          'Meeting With Contractor',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
           ),
         ),
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [SparshTheme.scaffoldBackground, SparshTheme.cardBackground],
-              stops: [0.0, 1.0],
-            ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DsrEntry()),
+              ),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            onPressed: () => _showHelpDialog(),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: FadeTransition(
+            opacity: _fadeAnimation,
             child: Form(
               key: _formKey,
-              child: ListView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Process Type Dropdown
-                  _buildLabel('Process type'),
+                  // Header Section
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blue[100]!),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.groups,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Meeting With Contractor',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Record details of your meeting with contractor or stockist',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Process Type Section
+                  _buildSectionTitle('Process Type'),
                   const SizedBox(height: 8),
-                  if (_processTypeError != null)
-                    Text(_processTypeError!, style: const TextStyle(color: Colors.red)),
-                  _isLoadingProcessTypes
-                    ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                    : DropdownButtonFormField<String>(
-                        value: _processItem,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                        ),
-                        items: _processdropdownItems.map((it) => DropdownMenuItem(value: it, child: Text(it))).toList(),
-                        onChanged: (val) async {
-                          setState(() => _processItem = val);
-                          if (val == 'Update') await _fetchDocumentNumbers();
-                        },
-                        validator: (v) => v == null || v == 'Select' ? 'Required' : null,
-                      ),
+                  _buildProcessTypeDropdown(),
+                  const SizedBox(height: 24),
+
+                  // Document Number (for Update)
                   if (_processItem == 'Update') ...[
-                    const SizedBox(height: 8.0),
+                    _buildSectionTitle('Document Number'),
+                    const SizedBox(height: 8),
                     _loadingDocs
-                      ? const Center(child: CircularProgressIndicator())
-                      : DropdownButtonFormField<String>(
-                          value: _selectedDocuNumb,
-                          decoration: const InputDecoration(labelText: 'Document Number'),
-                          items: _documentNumbers
-                              .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-                              .toList(),
-                          onChanged: (v) async {
-                            setState(() => _selectedDocuNumb = v);
-                            if (v != null) await _fetchAndPopulateDetails(v);
-                          },
-                          validator: (v) => v == null ? 'Required' : null,
-                        ),
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildDocumentNumberDropdown(),
+                    const SizedBox(height: 24),
                   ],
 
-                  const SizedBox(height: 24),
-                  _buildLabel('Submission Date'),
+                  // Date Fields Section
+                  _buildSectionTitle('Date Information'),
                   const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _submissionDateController,
+                  _buildDateField(
+                    'Submission Date',
+                    _submissionDateController,
                     readOnly: true,
-                    enabled: false,
-                    decoration: InputDecoration(
-                      hintText: 'Submission Date',
-                      filled: true,
-                      fillColor: SparshTheme.lightGreyBackground,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                        borderSide: BorderSide.none,
-                      ),
-                      suffixIcon: const Icon(Icons.lock, color: Colors.grey),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    ),
-                    validator: (val) => (val == null || val.isEmpty) ? 'Please select a date' : null,
                   ),
-
-                  const SizedBox(height: 24),
-                  _buildLabel('Report Date'),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _reportDateController,
-                    readOnly: true,
+                  const SizedBox(height: 16),
+                  _buildDateField(
+                    'Report Date',
+                    _reportDateController,
                     onTap: _pickReportDate,
-                    decoration: InputDecoration(
-                      hintText: 'Select Report Date',
-                      filled: true,
-                      fillColor: SparshTheme.lightGreyBackground,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                        borderSide: BorderSide.none,
-                      ),
-                      suffixIcon: const Icon(Icons.calendar_today),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    ),
-                    validator: (val) => (val == null || val.isEmpty) ? 'Please select a date' : null,
                   ),
-
                   const SizedBox(height: 24),
-                  _buildLabel('Area Code'),
-                  const SizedBox(height: 8),
-                  Container(
-                    height: 48,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade300, width: 1),
-                      color: Colors.white,
-                    ),
-                    child: _isLoadingAreaCodes
-                        ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                        : DropdownButton<String>(
-                            isExpanded: true,
-                            value: _selectedAreaCode,
-                            underline: Container(),
-                            items: _areaCodes.map((area) {
-                              final code = area['code']!;
-                              final name = area['name']!;
-                              return DropdownMenuItem(
-                                value: code,
-                                child: Text(code == 'Select' ? 'Select' : '$code - $name'),
-                              );
-                            }).toList(),
-                            onChanged: _onAreaCodeChanged,
-                          ),
-                  ),
 
+                  // Location Information Section
+                  _buildSectionTitle('Location Information'),
+                  const SizedBox(height: 8),
+                  _buildDropdownField(
+                    'Area Code',
+                    _selectedAreaCode,
+                    _areaCodes.map((area) => area['name']!).toList(),
+                    _onAreaCodeChanged,
+                    isLoading: _isLoadingAreaCodes,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDropdownField(
+                    'Purchaser Type',
+                    _selectedPurchaser,
+                    _purchasers.map((purchaser) => purchaser['name']!).toList(),
+                    _onPurchaserChanged,
+                    isLoading: _isLoadingPurchasers,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDropdownField(
+                    'Purchaser Code',
+                    _selectedPurchaserCode,
+                    _purchaserCodes
+                        .map(
+                          (code) =>
+                              code['code'] == 'Select'
+                                  ? 'Select'
+                                  : '${code['code']} - ${code['name']}',
+                        )
+                        .toList(),
+                    _onPurchaserCodeChanged,
+                    isLoading: _isLoadingPurchaserCodes,
+                  ),
                   const SizedBox(height: 24),
-                  _buildLabel('Purchaser'),
-                  const SizedBox(height: 8),
-                  Container(
-                    height: 48,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade300, width: 1),
-                      color: Colors.white,
-                    ),
-                    child: _isLoadingPurchasers
-                        ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                        : DropdownButton<String>(
-                            isExpanded: true,
-                            value: _selectedPurchaserDescription,
-                            underline: Container(),
-                            items: _purchasers.map((item) {
-                              return DropdownMenuItem(
-                                value: item['description'],
-                                child: Text(item['description']!),
-                              );
-                            }).toList(),
-                            onChanged: _onPurchaserChanged,
-                          ),
-                  ),
 
+                  // Dynamic Fields Section
+                  _buildSectionTitle('Meeting Details'),
+                  const SizedBox(height: 8),
+                  ..._buildDynamicFields(),
                   const SizedBox(height: 24),
-                  _buildLabel('Purchaser Code'),
+
+                  // Action Remarks Section
+                  _buildSectionTitle('Action Remarks'),
                   const SizedBox(height: 8),
-                  Builder(
-                    builder: (context) {
-                      return Container(
-                        height: 48,
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.grey.shade300, width: 1),
-                          color: Colors.white,
-                        ),
-                        child: _isLoadingPurchaserCodes
-                            ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                            : DropdownButton<String>(
-                                isExpanded: true,
-                                value: _selectedPurchaserCode,
-                                underline: Container(),
-                                items: _purchaserCodes.map((item) {
-                                  final code = item['code']!;
-                                  final name = item['name']!;
-                                  return DropdownMenuItem(
-                                    value: code,
-                                    child: Text(code == 'Select' ? 'Select' : '$code - $name'),
-                                  );
-                                }).toList(),
-                                onChanged: (value) {
-                                  setState(() {
-                                    _selectedPurchaserCode = value ?? 'Select';
-                                  });
-                                },
-                              ),
-                      );
-                    },
-                  ),
-
-                 
-
+                  _buildActionRemarksSection(),
                   const SizedBox(height: 24),
-                  _buildLabel('New Orders Received'),
-                  const SizedBox(height: 8),
-                  _buildTextField(
-                    'New Orders Received',
-                    controller: _newOrdersController,
-                  ),
 
-                  const SizedBox(height: 24),
-                  _buildLabel('Ugai Recovery Plans'),
+                  // Image Upload Section
+                  _buildSectionTitle('Upload Images'),
                   const SizedBox(height: 8),
-                  _buildTextField(
-                    'Ugai Recovery Plans',
-                    controller: _ugaiRecoveryController,
-                    maxLines: 2,
-                  ),
+                  ..._buildImageUploadSection(),
+                  const SizedBox(height: 32),
 
-                  const SizedBox(height: 24),
-                  _buildLabel('Any Purchaser Grievances'),
-                  const SizedBox(height: 8),
-                  _buildTextField(
-                    'Any Purchaser Grievances',
-                    controller: _grievanceController,
-                    maxLines: 2,
-                  ),
-
-                  const SizedBox(height: 24),
-                  _buildLabel('Any Other Points'),
-                  const SizedBox(height: 8),
-                  _buildTextField(
-                    'Any Other Points',
-                    controller: _otherPointsController,
-                    maxLines: 2,
-                  ),
-
-                  const SizedBox(height: 24),
-                  _buildLabel('Action Remarks'),
-                  const SizedBox(height: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(child: _buildLabel('Action Points')),
-                            Expanded(child: _buildLabel('Closer Date')),
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: _removeRow,
-                            ),
-                          ],
-                        ),
-                        ...List.generate(_uploadRows.length, (index) {
-                          return Row(
-                            children: [
-                              Expanded(
-                                child: _buildTextField(
-                                  '',
-                                  controller: _actionPointsControllers[index], // Use controller
-                                  maxLines: 2,
-                                ),
-                              ),
-                              Expanded(
-                                child: _buildDateField(
-                                  _closerDateControllers[index], // Use controller
-                                  () async {
-                                    // Date picker for closer date
-                                    final picked = await showDatePicker(
-                                      context: context,
-                                      initialDate: DateTime.now(),
-                                      firstDate: DateTime(1900),
-                                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                                    );
-                                    // Set value if picked
-                                    if (picked != null) {
-                                      setState(() {
-                                        _closerDateControllers[index].text = DateFormat('yyyy-MM-dd').format(picked);
-                                      });
-                                    }
-                                  },
-                                  'Closer Date',
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: _removeRow,
-                              ),
-                            ],
-                          );
-                        }),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          children: [
-                            ElevatedButton(
-                              onPressed: _addRow,
-                              child: const Text('Add'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-                  _buildLabel('Upload Supporting'),
-                  const SizedBox(height: 8),
-                  Container(
-                    margin: const EdgeInsets.only(top: 8, bottom: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: SparshTheme.cardBackground,
-                      borderRadius: BorderRadius.circular(SparshBorderRadius.lg),
-                      border: Border.all(color: SparshTheme.borderGrey),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.photo_library_rounded, color: SparshTheme.primaryBlueAccent, size: 24),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                'Supporting Documents',
-                                style: Fonts.bodyBold.copyWith(fontSize: 18, color: SparshTheme.primaryBlueAccent),
-                                softWrap: true,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text('Upload images related to your activity', style: Fonts.body.copyWith(fontSize: 14, color: Colors.grey.shade600)),
-                        const SizedBox(height: 16),
-                        ...List.generate(_uploadRows.length, (index) {
-                          final file = _selectedImages[index];
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 16),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: file != null ? Colors.green.shade200 : Colors.grey.shade200, width: 1.5),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: SparshTheme.primaryBlueAccent.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text('Document ${index + 1}',
-                                          style: Fonts.bodyBold.copyWith(fontSize: 14, color: SparshTheme.primaryBlueAccent)),
-                                    ),
-                                    const Spacer(),
-                                    if (file != null)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                        decoration:
-                                        BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(20)),
-                                        child: const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.check_circle, color: Colors.green, size: 16),
-                                            SizedBox(width: 4),
-                                            Text('Uploaded',
-                                                style: TextStyle(color: Colors.green, fontWeight: FontWeight.w500, fontSize: 14)),
-                                          ],
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                if (file != null)
-                                  GestureDetector(
-                                    onTap: () => _showImageDialog(file),
-                                    child: Container(
-                                      height: 120,
-                                      width: double.infinity,
-                                      margin: const EdgeInsets.only(bottom: 16),
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(8),
-                                        image: DecorationImage(image: FileImage(file), fit: BoxFit.cover),
-                                      ),
-                                      child: Align(
-                                        alignment: Alignment.topRight,
-                                        child: Container(
-                                          margin: const EdgeInsets.all(8),
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), shape: BoxShape.circle),
-                                          child: const Icon(Icons.zoom_in, color: Colors.white, size: 20),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: ElevatedButton.icon(
-                                        onPressed: () => _pickImage(index),
-                                        icon: Icon(file != null ? Icons.refresh : Icons.upload_file, size: 18),
-                                        label: Text(file != null ? 'Replace' : 'Upload'),
-                                        style: ElevatedButton.styleFrom(
-                                          foregroundColor: Colors.white,
-                                          backgroundColor: file != null ? Colors.amber.shade600 : SparshTheme.primaryBlueAccent,
-                                          elevation: 0,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                        ),
-                                      ),
-                                    ),
-                                    if (_uploadRows.length > 1)
-                                      Padding(
-                                        padding: const EdgeInsets.only(left: 8),
-                                        child: ElevatedButton.icon(
-                                          onPressed: _removeRow,
-                                          icon: const Icon(Icons.remove_circle_outline, size: 20),
-                                          label: const Text('Remove'),
-                                          style: ElevatedButton.styleFrom(
-                                            foregroundColor: Colors.white,
-                                            backgroundColor: Colors.redAccent,
-                                            elevation: 0,
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
-                        }),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: _addRow,
-                              icon: const Icon(Icons.add_photo_alternate, size: 20),
-                              label: const Text('Document'),
-                              style: ElevatedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                backgroundColor: Colors.blueAccent,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 30),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                  // Submit Buttons
+                  Row(
                     children: [
-                      ElevatedButton(
-                        onPressed: () => _onSubmit(exitAfter: false),
-                        style: ElevatedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          backgroundColor: Colors.blueAccent,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          textStyle: Fonts.bodyBold.copyWith(fontSize: 16),
-                          elevation: 3.0,
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Submit & New',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
-                        child: const Text('Submit & New'),
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => _onSubmit(exitAfter: true),
-                        style: ElevatedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          backgroundColor: Colors.green,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          textStyle: Fonts.bodyBold.copyWith(fontSize: 16),
-                          elevation: 3.0,
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[700],
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Submit & Exit',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
-                        child: const Text('Submit & Exit'),
                       ),
                     ],
                   ),
-
-                  // Hidden offstage fields (unchanged UI)
-                  
-
-                  const SizedBox(height: 20),
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildProcessTypeDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _processItem,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select process type',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items:
+          _processdropdownItems
+              .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+              .toList(),
+      onChanged: _onProcessTypeChanged,
+      validator:
+          (v) =>
+              v == null || v == 'Select'
+                  ? 'Please select a Process Type'
+                  : null,
+    );
+  }
+
+  Widget _buildDocumentNumberDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedDocuNumb,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select document number',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items:
+          _documentNumbers
+              .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+              .toList(),
+      onChanged: (v) async {
+        setState(() => _selectedDocuNumb = v);
+        if (v != null) await _fetchAndPopulateDetails(v);
+      },
+      validator: (v) => v == null ? 'Required' : null,
+    );
+  }
+
+  Widget _buildDateField(
+    String label,
+    TextEditingController controller, {
+    bool readOnly = false,
+    VoidCallback? onTap,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          readOnly: readOnly,
+          onTap: onTap,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Select date',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+            suffixIcon:
+                readOnly
+                    ? const Icon(Icons.lock, color: Colors.grey)
+                    : const Icon(Icons.calendar_today, color: Colors.blue),
+          ),
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownField(
+    String label,
+    String? value,
+    List<String> items,
+    Function(String?) onChanged, {
+    bool isLoading = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child:
+              isLoading
+                  ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                  : DropdownButton<String>(
+                    isExpanded: true,
+                    value: value,
+                    underline: Container(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    items:
+                        items
+                            .map(
+                              (item) => DropdownMenuItem(
+                                value: item,
+                                child: Text(item),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: onChanged,
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Colors.grey,
+                    ),
+                  ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildDynamicFields() {
+    final config = activityFieldConfig[_selectedActivityType] ?? [];
+    return config.map((field) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildTextField(
+            field['label']!,
+            _controllers[field['key']!]!,
+            maxLines:
+                field['key'] == 'ugaiRecovery' ||
+                        field['key'] == 'grievance' ||
+                        field['key'] == 'otherPoint'
+                    ? 3
+                    : 1,
+          ),
+          const SizedBox(height: 16),
+        ],
+      );
+    }).toList();
+  }
+
+  Widget _buildTextField(
+    String label,
+    TextEditingController controller, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Enter $label',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+          ),
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionRemarksSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        children: [
+          // Header row
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.blue[50],
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+            ),
+            child: const Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'Action Points',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    'Closer Date',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 48),
+              ],
+            ),
+          ),
+
+          // Action rows
+          ...List.generate(_actionRows.length, (index) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: TextFormField(
+                          controller: _actionPointsControllers[index],
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide.none,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(
+                                color: Colors.blue,
+                                width: 2,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            hintText: 'Enter action points',
+                            hintStyle: TextStyle(
+                              color: Colors.grey[400],
+                              fontSize: 14,
+                            ),
+                          ),
+                          validator:
+                              (val) =>
+                                  val == null || val.isEmpty
+                                      ? 'This field is required'
+                                      : null,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: TextFormField(
+                          controller: _closerDateControllers[index],
+                          readOnly: true,
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: DateTime.now(),
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                _closerDateControllers[index].text = DateFormat(
+                                  'yyyy-MM-dd',
+                                ).format(picked);
+                              });
+                            }
+                          },
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide.none,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(
+                                color: Colors.blue,
+                                width: 2,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            hintText: 'Select date',
+                            hintStyle: TextStyle(
+                              color: Colors.grey[400],
+                              fontSize: 14,
+                            ),
+                            suffixIcon: const Icon(
+                              Icons.calendar_today,
+                              color: Colors.blue,
+                            ),
+                          ),
+                          validator:
+                              (val) =>
+                                  val == null || val.isEmpty
+                                      ? 'This field is required'
+                                      : null,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      if (_actionRows.length > 1)
+                        IconButton(
+                          onPressed: () => _removeActionRow(),
+                          icon: const Icon(
+                            Icons.remove_circle,
+                            color: Colors.red,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (index < _actionRows.length - 1) const Divider(height: 1),
+              ],
+            );
+          }),
+
+          // Add button
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _addActionRow,
+                icon: const Icon(Icons.add, color: Colors.blue),
+                label: const Text(
+                  'Add Action',
+                  style: TextStyle(color: Colors.blue),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.blue),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildImageUploadSection() {
+    List<Widget> widgets = List.generate(_selectedImages.length, (i) {
+      final file = _selectedImages[i];
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: file != null ? Colors.green : Colors.grey[300]!,
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Document ${i + 1}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const Spacer(),
+                if (file != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green, size: 16),
+                        SizedBox(width: 4),
+                        Text(
+                          'Uploaded',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (file != null)
+              GestureDetector(
+                onTap: () => _showImageDialog(file),
+                child: Container(
+                  height: 120,
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    image: DecorationImage(
+                      image: FileImage(file),
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: Container(
+                      margin: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.zoom_in,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _pickImage(i),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      side: const BorderSide(color: Colors.blue),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          file != null ? Icons.refresh : Icons.upload_file,
+                          size: 18,
+                          color: Colors.blue,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          file != null ? 'Replace' : 'Upload',
+                          style: TextStyle(
+                            color: Colors.blue,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (file != null) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _showImageDialog(file),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        side: const BorderSide(color: Colors.green),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.visibility, size: 18, color: Colors.green),
+                          SizedBox(width: 8),
+                          Text(
+                            'View',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                if (_selectedImages.length > 1) ...[
+                  const SizedBox(width: 12),
+                  IconButton(
+                    onPressed: () => _removeImageRow(i),
+                    icon: const Icon(Icons.remove_circle, color: Colors.red),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      );
+    });
+
+    widgets.add(
+      Padding(
+        padding: const EdgeInsets.only(top: 8.0),
+        child: Align(
+          alignment: Alignment.center,
+          child: OutlinedButton.icon(
+            onPressed: _addImageRow,
+            icon: const Icon(Icons.add_photo_alternate, color: Colors.blue),
+            label: const Text(
+              'Add Document',
+              style: TextStyle(color: Colors.blue),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.blue),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return widgets;
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Meeting Help',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all the required fields to record your meeting with contractor or stockist. '
+                    'Make sure to select the correct process type (Add/Update) and provide accurate location information.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
     );
   }
 }

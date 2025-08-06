@@ -1,31 +1,34 @@
 // File: lib/universal_outlet_registration.dart
-
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 
 class UniversalOutletRegistrationPage extends StatefulWidget {
   const UniversalOutletRegistrationPage({super.key});
-
   @override
   State<UniversalOutletRegistrationPage> createState() =>
       _UniversalOutletRegistrationPageState();
 }
 
 class _UniversalOutletRegistrationPageState
-    extends State<UniversalOutletRegistrationPage> {
+    extends State<UniversalOutletRegistrationPage>
+    with TickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
   // Controllers for text fields
   final TextEditingController _address1Controller = TextEditingController();
   final TextEditingController _address2Controller = TextEditingController();
   final TextEditingController _address3Controller = TextEditingController();
   final TextEditingController _concernEmployeeController =
-  TextEditingController(text: 'undefined');
+      TextEditingController(text: 'undefined');
   final TextEditingController _mobileController = TextEditingController();
   final TextEditingController _alternateMobileController =
-  TextEditingController();
+      TextEditingController();
   final TextEditingController _gstController = TextEditingController();
-
   final TextEditingController _panController = TextEditingController();
-  final TextEditingController _retailerNameController =
-  TextEditingController();
+  final TextEditingController _retailerNameController = TextEditingController();
   final TextEditingController _marketNameController = TextEditingController();
   final TextEditingController _whiteCementController = TextEditingController();
   final TextEditingController _wallCareController = TextEditingController();
@@ -42,7 +45,11 @@ class _UniversalOutletRegistrationPageState
   // Toggle for address mode: 'geo' or 'pin'
   String _addressMode = 'geo';
 
-  // Dropdown lists (placeholder values; replace with real data)
+  // Form validation
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
+
+  // Dropdown lists
   final List<String> _areas = ['Select', 'Area A', 'Area B', 'Area C'];
   final List<String> _districts = ['select', 'District X', 'District Y'];
   final List<String> _cities = ['Select City', 'City 1', 'City 2'];
@@ -51,11 +58,41 @@ class _UniversalOutletRegistrationPageState
   final List<String> _paintNonPaintDetailsOptions = [
     'Detail 1',
     'Detail 2',
-    'Detail 3'
+    'Detail 3',
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic),
+    );
+
+    _fadeController.forward();
+    _slideController.forward();
+  }
+
+  @override
   void dispose() {
+    _fadeController.dispose();
+    _slideController.dispose();
     // Dispose all controllers
     _address1Controller.dispose();
     _address2Controller.dispose();
@@ -64,7 +101,6 @@ class _UniversalOutletRegistrationPageState
     _mobileController.dispose();
     _alternateMobileController.dispose();
     _gstController.dispose();
-
     _panController.dispose();
     _retailerNameController.dispose();
     _marketNameController.dispose();
@@ -74,7 +110,6 @@ class _UniversalOutletRegistrationPageState
     super.dispose();
   }
 
-  /// Toggles a detail in the "Paint / Non-Paint Details" checklist.
   void _togglePaintNonPaintDetail(String detail) {
     setState(() {
       if (_selectedPaintNonPaintDetails.contains(detail)) {
@@ -87,563 +122,860 @@ class _UniversalOutletRegistrationPageState
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      // Wrap the entire Scaffold in a Container with a blue gradient
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Color(0xFF1976D2),
-            Color(0xFF42A5F5),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.blue,
+        elevation: 0,
+        centerTitle: true,
+        title: const Text(
+          'Outlet Registration',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            onPressed: () => _showHelpDialog(),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header Section
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.blue[100]!),
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.blue,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.store,
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Register New Outlet',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Please fill in the information below to register a new outlet',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[600],
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Basic Information Section
+                    _buildSectionTitle('Basic Information'),
+                    const SizedBox(height: 16),
+                    _buildDropdownField('Area', _areas, _selectedArea, (value) {
+                      setState(() => _selectedArea = value);
+                    }),
+                    const SizedBox(height: 16),
+                    _buildAddressModeToggle(),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Address Line 1',
+                      controller: _address1Controller,
+                      validator: _validateRequired,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Address Line 2',
+                      controller: _address2Controller,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Address Line 3',
+                      controller: _address3Controller,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Concern Employee',
+                      controller: _concernEmployeeController,
+                      readOnly: true,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildDropdownField(
+                      'District',
+                      _districts,
+                      _selectedDistrict,
+                      (value) {
+                        setState(() => _selectedDistrict = value);
+                      },
+                      validator: _validateRequired,
+                    ),
+                    const SizedBox(height: 16),
+                    if (_addressMode == 'pin') ...[
+                      _buildDropdownField(
+                        'Pin Code',
+                        _pinCodes,
+                        _selectedPinCode,
+                        (value) {
+                          setState(() => _selectedPinCode = value);
+                        },
+                        validator: _validateRequired,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    _buildDropdownField('City', _cities, _selectedCity, (
+                      value,
+                    ) {
+                      setState() => _selectedCity = value;
+                    }, validator: _validateRequired),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Mobile Number',
+                      controller: _mobileController,
+                      validator: _validateMobile,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Alternate Mobile',
+                      controller: _alternateMobileController,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Business Details Section
+                    _buildSectionTitle('Business Details'),
+                    const SizedBox(height: 16),
+                    _buildTextField('PAN Number', controller: _panController),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Retailer Name',
+                      controller: _retailerNameController,
+                      validator: _validateRequired,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Market Name',
+                      controller: _marketNameController,
+                      validator: _validateRequired,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'White Cement Potential (Monthly)',
+                      controller: _whiteCementController,
+                      validator: _validateRequired,
+                      keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Wall Care Putty Potential (Monthly)',
+                      controller: _wallCareController,
+                      validator: _validateRequired,
+                      keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildPaintNonPaintToggle(),
+                    const SizedBox(height: 16),
+                    _buildPaintNonPaintDetailsButton(),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                      'Contact Name',
+                      controller: _contactNameController,
+                      validator: _validateRequired,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildImageUploadSection(),
+                    const SizedBox(height: 32),
+
+                    // Submit Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _handleSubmit,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                        child:
+                            _isLoading
+                                ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                                : const Text(
+                                  'Submit Registration',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
-      child: Scaffold(
-        // Make the Scaffold background transparent so the gradient shows through
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          // Transparent AppBar so gradient extends behind it
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: true,
-          title: const Text(
-            'Universal Outlets Registration',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 22,
-              letterSpacing: 0.5,
-              shadows: [
-                Shadow(
-                  color: Colors.black26,
-                  blurRadius: 4,
-                  offset: Offset(0, 2),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildTextField(
+    String label, {
+    required TextEditingController controller,
+    String? Function(String?)? validator,
+    bool readOnly = false,
+    TextInputType? keyboardType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          validator: validator,
+          readOnly: readOnly,
+          keyboardType: keyboardType,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            hintText: 'Enter $label',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownField(
+    String label,
+    List<String> items,
+    String? selectedValue,
+    Function(String?) onChanged, {
+    String? Function(String?)? validator,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: selectedValue,
+          validator: validator,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+          ),
+          items:
+              items.map((item) {
+                return DropdownMenuItem(value: item, child: Text(item));
+              }).toList(),
+          onChanged: onChanged,
+          icon: const Icon(Icons.keyboard_arrow_down),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAddressModeToggle() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Address Capture Method',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _addressMode = 'geo'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _addressMode == 'geo' ? Colors.blue : Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color:
+                          _addressMode == 'geo'
+                              ? Colors.blue
+                              : Colors.grey[300]!,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      'Geo Location',
+                      style: TextStyle(
+                        color:
+                            _addressMode == 'geo'
+                                ? Colors.white
+                                : Colors.black87,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
                 ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _addressMode = 'pin'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _addressMode == 'pin' ? Colors.blue : Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color:
+                          _addressMode == 'pin'
+                              ? Colors.blue
+                              : Colors.grey[300]!,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      'Pin Code',
+                      style: TextStyle(
+                        color:
+                            _addressMode == 'pin'
+                                ? Colors.white
+                                : Colors.black87,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaintNonPaintToggle() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Paint / Non-Paint Type',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children:
+              _paintNonPaintOptions.map((option) {
+                final bool isSelected = _selectedPaintNonPaint == option;
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedPaintNonPaint = option;
+                          _selectedPaintNonPaintDetails.clear();
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.blue : Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSelected ? Colors.blue : Colors.grey[300]!,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            option,
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.black87,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaintNonPaintDetailsButton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Paint / Non-Paint Details',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: () {
+            showModalBottomSheet(
+              context: context,
+              backgroundColor: Colors.white,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              builder:
+                  (_) => Container(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Select Details',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ..._paintNonPaintDetailsOptions.map((detail) {
+                          final bool checked = _selectedPaintNonPaintDetails
+                              .contains(detail);
+                          return CheckboxListTile(
+                            title: Text(detail),
+                            value: checked,
+                            onChanged: (_) {
+                              _togglePaintNonPaintDetail(detail);
+                            },
+                            activeColor: Colors.blue,
+                          );
+                        }).toList(),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text(
+                              'Done',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _selectedPaintNonPaintDetails.isEmpty
+                      ? 'No details selected'
+                      : '${_selectedPaintNonPaintDetails.length} selected',
+                  style: TextStyle(
+                    color:
+                        _selectedPaintNonPaintDetails.isEmpty
+                            ? Colors.grey[500]
+                            : Colors.black87,
+                    fontSize: 14,
+                  ),
+                ),
+                const Icon(Icons.keyboard_arrow_up, color: Colors.grey),
               ],
             ),
           ),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            tooltip: 'Back',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageUploadSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Retailer Shop Image',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
           ),
         ),
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // If device width < 600, stack cards vertically
-                bool isMobile = constraints.maxWidth < 600;
-
-                // Build the two cards in either a Column (mobile) or Row (tablet/desktop)
-                Widget cardsSection = isMobile
-                    ? Column(
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () {
+                  // TODO: implement image upload
+                },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  side: const BorderSide(color: Colors.blue),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _buildBasicDetailsCard(isMobile),
-                    const SizedBox(height: 16),
-                    _buildContactDetailsCard(isMobile),
+                    Icon(Icons.upload, color: Colors.blue, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Upload Image',
+                      style: TextStyle(
+                        color: Colors.blue,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ],
-                )
-                    : Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () {
+                  // TODO: implement image view
+                },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  side: BorderSide(color: Colors.grey[300]!),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Expanded(child: _buildBasicDetailsCard(isMobile)),
-                    const SizedBox(width: 16),
-                    Expanded(child: _buildContactDetailsCard(isMobile)),
+                    Icon(Icons.visibility, color: Colors.grey, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'View Image',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ],
-                );
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    cardsSection,
-                    const SizedBox(height: 24),
-                    // Submit button at the bottom
-                    ElevatedButton(
-                      onPressed: () {
-                        // TODO: Implement your submit logic here
-                        // For now, just print all entered data:
-                        debugPrint('--- SUBMIT PRESSED ---');
-                        debugPrint('Area: $_selectedArea');
-                        debugPrint('Address Mode: $_addressMode');
-                        debugPrint('Address1: ${_address1Controller.text}');
-                        debugPrint('Address2: ${_address2Controller.text}');
-                        debugPrint('Address3: ${_address3Controller.text}');
-                        debugPrint('Concern Employee: ${_concernEmployeeController.text}');
-                        debugPrint('District: $_selectedDistrict');
-                        if (_addressMode == 'pin') {
-                          debugPrint('Pin Code: $_selectedPinCode');
-                        }
-                        debugPrint('City: $_selectedCity');
-                        debugPrint('Mobile: ${_mobileController.text}');
-                        debugPrint('Alternate Mobile: ${_alternateMobileController.text}');
-                        debugPrint('GST Number: ${_gstController.text}');
-                        debugPrint('PAN NO: ${_panController.text}');
-                        debugPrint('Retailer Name: ${_retailerNameController.text}');
-                        debugPrint('Market Name: ${_marketNameController.text}');
-                        debugPrint('WC Potential: ${_whiteCementController.text}');
-                        debugPrint('WCP Potential: ${_wallCareController.text}');
-                        debugPrint('Paint/Non-Paint Type: $_selectedPaintNonPaint');
-                        debugPrint('Paint/Non-Paint Details: $_selectedPaintNonPaintDetails');
-                        debugPrint('Contact Name: ${_contactNameController.text}');
-                        // At this point, you can send data to your API or process it further
-                      },
+  // Validation functions
+  String? _validateRequired(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'This field is required';
+    }
+    return null;
+  }
+
+  String? _validateMobile(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Mobile number is required';
+    }
+    if (value.length != 10) {
+      return 'Please enter a valid 10-digit mobile number';
+    }
+    return null;
+  }
+
+  void _handleSubmit() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    // Simulate API call
+    await Future.delayed(const Duration(seconds: 2));
+
+    setState(() => _isLoading = false);
+
+    // Show success dialog
+    _showSuccessDialog();
+  }
+
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 40,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Registration Successful!',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your outlet registration has been submitted successfully.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                       child: const Text(
-                        'Submit',
-                        style: TextStyle(fontSize: 18, color: Colors.white),
+                        'OK',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                  ],
-                );
-              },
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 
-  /// Left "Basic Details" card
-  Widget _buildBasicDetailsCard(bool isMobile) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            const Text(
-              'Basic Details',
-              style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87),
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-            const SizedBox(height: 16),
-
-            // Area *
-            const Text('Area *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            DropdownButtonFormField<String>(
-              value: _selectedArea ?? _areas.first,
-              decoration: _inputDecoration(),
-              items: _areas.map((area) {
-                return DropdownMenuItem(
-                  value: area,
-                  child: Text(area),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedArea = value;
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-
-            // Address Capture using Geo Location / Select Pin * (mutually exclusive)
-            const Text(
-              'Address Capture using Geo Location / Select Pin *',
-              style: TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
-                      setState(() {
-                        _addressMode = 'geo';
-                      });
-                      // TODO: implement Geo Location logic
-                    },
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: _addressMode == 'geo'
-                          ? Colors.blue.withOpacity(0.15)
-                          : Colors.white,
-                      side: BorderSide(
-                        color: _addressMode == 'geo'
-                            ? Colors.blue
-                            : Colors.grey.shade400,
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Registration Help',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all required fields marked with *. '
+                    'For address capture, choose between Geo Location or Pin Code. '
+                    'Upload a clear image of the retailer shop.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
-                    child: const Text('Geo Location'),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
-                      setState(() {
-                        _addressMode = 'pin';
-                      });
-                      // TODO: implement Pin Code logic
-                    },
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: _addressMode == 'pin'
-                          ? Colors.blue.withOpacity(0.15)
-                          : Colors.white,
-                      side: BorderSide(
-                        color: _addressMode == 'pin'
-                            ? Colors.blue
-                            : Colors.grey.shade400,
-                      ),
-                    ),
-                    child: const Text('Pin Code'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Address 1 *
-            const Text('Address 1 *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _address1Controller,
-              decoration: _inputDecoration(hintText: 'Address 1'),
-            ),
-            const SizedBox(height: 16),
-
-            // Address 2
-            const Text('Address 2', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _address2Controller,
-              decoration: _inputDecoration(hintText: 'Address 2'),
-            ),
-            const SizedBox(height: 16),
-
-            // Address 3
-            const Text('Address 3', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _address3Controller,
-              decoration: _inputDecoration(hintText: 'Address 3'),
-            ),
-            const SizedBox(height: 16),
-
-            // Concern Employee *
-            const Text('Concern Employee *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _concernEmployeeController,
-              readOnly: true,
-              decoration: _inputDecoration(),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'undefined',
-              style: TextStyle(color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 16),
-
-            // District *
-            const Text('District *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            DropdownButtonFormField<String>(
-              value: _selectedDistrict ?? _districts.first,
-              decoration: _inputDecoration(),
-              items: _districts.map((dist) {
-                return DropdownMenuItem(
-                  value: dist,
-                  child: Text(dist),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedDistrict = value;
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-
-            // Pin Code * (only show if addressMode == 'pin')
-            if (_addressMode == 'pin') ...[
-              const Text('Pin Code *', style: TextStyle(fontSize: 14)),
-              const SizedBox(height: 6),
-              DropdownButtonFormField<String>(
-                value: _selectedPinCode ?? _pinCodes.first,
-                decoration: _inputDecoration(),
-                items: _pinCodes.map((pin) {
-                  return DropdownMenuItem(
-                    value: pin,
-                    child: Text(pin),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedPinCode = value;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // City * (always show)
-            const Text('City *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            DropdownButtonFormField<String>(
-              value: _selectedCity ?? _cities.first,
-              decoration: _inputDecoration(),
-              items: _cities.map((city) {
-                return DropdownMenuItem(
-                  value: city,
-                  child: Text(city),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedCity = value;
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-
-            // Mobile *
-            const Text('Mobile *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _mobileController,
-              keyboardType: TextInputType.phone,
-              decoration: _inputDecoration(hintText: 'Mobile'),
-            ),
-            const SizedBox(height: 16),
-
-            // Alternate Mobile
-            const Text('Alternate Mobile', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _alternateMobileController,
-              keyboardType: TextInputType.phone,
-              decoration: _inputDecoration(hintText: 'Alternate Mobile'),
-            ),
-            const SizedBox(height: 16),
-
-            // GST Number
-            const Text('GST Number', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _gstController,
-              decoration: _inputDecoration(hintText: 'GST No', enabled: false),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Right "Contact Details" card
-  Widget _buildContactDetailsCard(bool isMobile) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            const Text(
-              'Contact Details',
-              style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87),
-            ),
-            const SizedBox(height: 16),
-
-            // PAN NO
-            const Text('PAN NO', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _panController,
-              decoration: _inputDecoration(hintText: 'PAN', enabled: false),
-            ),
-            const SizedBox(height: 16),
-
-            // Retailer Name *
-            const Text('Retailer Name *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _retailerNameController,
-              decoration: _inputDecoration(hintText: 'Retailer Name'),
-            ),
-            const SizedBox(height: 16),
-
-            // Market Name *
-            const Text('Market Name *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _marketNameController,
-              decoration: _inputDecoration(hintText: 'Market Name'),
-            ),
-            const SizedBox(height: 16),
-
-            // Total WC Potential (Monthly) *
-            const Text('Total WC Potential (Monthly)*',
-                style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _whiteCementController,
-              keyboardType: TextInputType.number,
-              decoration:
-              _inputDecoration(hintText: 'White Cement Potential'),
-            ),
-            const SizedBox(height: 16),
-
-            // Total WCP Potential (Monthly) *
-            const Text('Total WCP Potential (Monthly)*',
-                style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _wallCareController,
-              keyboardType: TextInputType.number,
-              decoration:
-              _inputDecoration(hintText: 'Wall care Putty Potential'),
-            ),
-            const SizedBox(height: 16),
-
-            // Paint / Non-Paint Type *
-            const Text('Paint / Non-Paint Type *',
-                style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            Row(
-              children: _paintNonPaintOptions.map((option) {
-                final bool isSelected = _selectedPaintNonPaint == option;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: OutlinedButton(
-                    onPressed: () {
-                      setState(() {
-                        _selectedPaintNonPaint = option;
-                        // When selecting a type, clear detail selections
-                        _selectedPaintNonPaintDetails.clear();
-                      });
-                    },
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: isSelected
-                          ? Colors.blue.withOpacity(0.15)
-                          : Colors.white,
-                      side: BorderSide(
-                          color: isSelected ? Colors.blue : Colors.grey.shade400),
-                    ),
-                    child: Text(option),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-
-            // Paint / Non-Paint Details (multi-select)
-            const Text('Paint / Non-Paint Details',
-                style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            OutlinedButton(
-              onPressed: () {
-                // Show a modal bottom sheet with checkboxes
-                showModalBottomSheet(
-                  context: context,
-                  builder: (_) => Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: _paintNonPaintDetailsOptions.map((detail) {
-                        final bool checked =
-                        _selectedPaintNonPaintDetails.contains(detail);
-                        return CheckboxListTile(
-                          title: Text(detail),
-                          value: checked,
-                          onChanged: (_) {
-                            _togglePaintNonPaintDetail(detail);
-                          },
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                );
-              },
-              style: OutlinedButton.styleFrom(
-                backgroundColor: Colors.grey.shade50,
-                side: BorderSide(color: Colors.grey.shade400),
-                padding:
-                const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-              ),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _selectedPaintNonPaintDetails.isEmpty
-                      ? '0 options selected'
-                      : '${_selectedPaintNonPaintDetails.length} options selected',
-                  style: TextStyle(color: Colors.grey.shade700),
-                ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-
-            // Contact Name *
-            const Text('Contact Name *', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _contactNameController,
-              decoration: _inputDecoration(hintText: 'Contact Name'),
-            ),
-            const SizedBox(height: 16),
-
-            // Retailer Shop Image
-            const Text('Retailer Shop Image', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                ElevatedButton(
-                  onPressed: () {
-                    // TODO: implement image upload
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                  ),
-                  child: const Text('Upload'),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton(
-                  onPressed: () {
-                    // TODO: implement image view
-                  },
-                  child: const Text('View'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Helper: unified InputDecoration for text fields
-  InputDecoration _inputDecoration({String? hintText, bool enabled = true}) {
-    return InputDecoration(
-      hintText: hintText,
-      filled: true,
-      fillColor: enabled ? Colors.grey.shade50 : Colors.grey.shade200,
-      enabled: enabled,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-      ),
+          ),
     );
   }
 }
