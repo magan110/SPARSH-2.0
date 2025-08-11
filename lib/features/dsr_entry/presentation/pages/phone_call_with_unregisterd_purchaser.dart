@@ -4,8 +4,6 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
-import '../../../../core/theme/app_theme.dart';
 import 'dsr_entry.dart';
 
 class PhoneCallWithUnregisterdPurchaser extends StatefulWidget {
@@ -15,22 +13,28 @@ class PhoneCallWithUnregisterdPurchaser extends StatefulWidget {
   State<PhoneCallWithUnregisterdPurchaser> createState() => _PhoneCallWithUnregisterdPurchaserState();
 }
 
-class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregisterdPurchaser> {
+class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregisterdPurchaser>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+  
+  final _formKey = GlobalKey<FormState>();
+  
   // Process dropdown
   String? _processItem = 'Select';
   final List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
-
+  
   // Dates
   final TextEditingController _submissionDateController = TextEditingController();
   final TextEditingController _reportDateController = TextEditingController();
-
+  
   // Area Code dropdown
   String? _areaCode = 'Select';
   final List<String> _areaCodes = ['Select', 'North', 'South', 'East', 'West'];
-
+  
   // Mobile No
   final TextEditingController _mobileController = TextEditingController();
-
+  
   // Purchaser / Retailer dropdown
   String? _purchaserType = 'Select';
   final List<String> _purchaserTypes = [
@@ -38,35 +42,51 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
     'Purchaser (Non Trade)',
     'Authorised Dealer'
   ];
-
+  
   // Party Name
   final TextEditingController _partyNameController = TextEditingController();
-
+  
   // Counter Type dropdown
   String? _counterType = 'Select';
   final List<String> _counterTypes = ['Select', 'Type A', 'Type B'];
-
+  
   // Pin Code
   final TextEditingController _pinCodeController = TextEditingController();
-
+  
   // District
   final TextEditingController _districtController = TextEditingController();
-
+  
   // Visited City
   final TextEditingController _visitedCityController = TextEditingController();
-
+  
   // Name & Designation
   final TextEditingController _nameDesigController = TextEditingController();
-
+  
   // Topics discussed
   final TextEditingController _topicsController = TextEditingController();
-
+  
   // Images
   List<File?> _selectedImages = [null];
-  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
+    _fadeController.forward();
+    
+    _setSubmissionDateToToday();
+  }
 
   @override
   void dispose() {
+    _fadeController.dispose();
     _submissionDateController.dispose();
     _reportDateController.dispose();
     _mobileController.dispose();
@@ -77,12 +97,6 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
     _nameDesigController.dispose();
     _topicsController.dispose();
     super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _setSubmissionDateToToday();
   }
 
   void _setSubmissionDateToToday() {
@@ -100,6 +114,31 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
       lastDate: now,  // Only allow up to today
     );
     if (picked != null) {
+      if (picked.isBefore(threeDaysAgo)) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Please Put Valid DSR Date.'),
+            content: const Text(
+              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.'
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  // Navigate to exception entry
+                },
+                child: const Text('Go to Exception Entry'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
       setState(() {
         _reportDateController.text = DateFormat('yyyy-MM-dd').format(picked);
       });
@@ -120,8 +159,7 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
   }
 
   Future<void> _pickImage(int index) async {
-    final pickedFile = await ImagePicker().pickImage(
-        source: ImageSource.gallery);
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
       setState(() => _selectedImages[index] = File(pickedFile.path));
     }
@@ -130,36 +168,30 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
   void _showImageDialog(File imageFile) {
     showDialog(
       context: context,
-      builder: (_) =>
-          Dialog(
-            child: Container(
-              width: MediaQuery
-                  .of(context)
-                  .size
-                  .width * 0.8,
-              height: MediaQuery
-                  .of(context)
-                  .size
-                  .height * 0.6,
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  fit: BoxFit.contain,
-                  image: FileImage(imageFile),
-                ),
-              ),
+      builder: (_) => Dialog(
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.8,
+          height: MediaQuery.of(context).size.height * 0.6,
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              fit: BoxFit.contain,
+              image: FileImage(imageFile),
             ),
           ),
+        ),
+      ),
     );
   }
 
   void _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
-
+    
     final dsrData = {
       'ActivityType': 'Phone Call with Unregistered Purchasers',
       'SubmissionDate': _submissionDateController.text,
       'ReportDate': _reportDateController.text,
-      'CreateId': 'SYSTEM',
+      'CreateId': '2948',
+      'UpdateId': '2948',
       'AreaCode': _areaCode ?? '',
       'Purchaser': _purchaserType ?? '',
       'PurchaserCode': '',
@@ -171,9 +203,12 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
       'dsrRem06': _visitedCityController.text,
       'dsrRem07': _nameDesigController.text,
       'dsrRem08': _topicsController.text,
+      'DsrParam': '13',
+      'DocuNumb': _processItem == 'Update' ? null : null,
+      'ProcessType': _processItem == 'Update' ? 'U' : 'A',
       'Images': _selectedImages.map((file) => file?.path).toList(),
     };
-
+    
     try {
       await submitDsrEntry(dsrData);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -181,7 +216,7 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
           content: Text(exitAfter
               ? 'Submitted successfully. Exiting...'
               : 'Submitted successfully. Ready for new entry.'),
-          backgroundColor: SparshTheme.successGreen,
+          backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -194,7 +229,7 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Submission failed: ${e.toString()}'),
-          backgroundColor: SparshTheme.errorRed,
+          backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -218,11 +253,12 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
       _topicsController.clear();
       _selectedImages = [null];
     });
-    _formKey.currentState!.reset();
+    _formKey.currentState?.reset();
+    _setSubmissionDateToToday();
   }
 
   Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    final url = Uri.parse('http://192.168.36.25/api/DsrTry');
+    final url = Uri.parse('http://10.4.64.23/api/DsrTry');
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
@@ -240,268 +276,674 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: SparshTheme.scaffoldBackground,
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        leading: IconButton(
-          onPressed: () =>
-              Navigator.push(
-                  context, MaterialPageRoute(builder: (_) => const DsrEntry())),
-          icon: const Icon(Icons.arrow_back_ios_new,
-              color: Colors.white, size: 22),
-        ),
-        title: Text(
-          'Phone Call with Unregistered Purchasers',
-          style: SparshTypography.heading2.copyWith(color: Colors.white),
-        ),
-        backgroundColor: SparshTheme.primaryBlueAccent,
+        backgroundColor: Colors.blue,
         elevation: 0,
+        centerTitle: true,
+        title: const Text(
+          'Phone Call with Unregistered Purchasers',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const DsrEntry()),
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            onPressed: () => _showHelpDialog(),
+          ),
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            children: [
-              _buildLabel('Process Type'),
-              _buildDropdownField(
-                value: _processItem,
-                items: _processdropdownItems,
-                onChanged: (v) => setState(() => _processItem = v),
-              ),
-              const SizedBox(height: 12),
-
-              _buildLabel('Submission Date'),
-              TextFormField(
-                controller: _submissionDateController,
-                readOnly: true,
-                enabled: false,
-                decoration: InputDecoration(
-                  hintText: 'Submission Date',
-                  filled: true,
-                  fillColor: SparshTheme.cardBackground,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                    borderSide: BorderSide.none,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header Section
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blue[100]!),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: const BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.phone_in_talk,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Phone Call with Unregistered Purchasers',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Record details of your phone call with unregistered purchasers',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
                   ),
-                  suffixIcon: const Icon(Icons.lock, color: Colors.grey),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.md, vertical: SparshSpacing.sm),
-                ),
-                validator: (val) => val == null || val.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              _buildLabel('Report Date'),
-              TextFormField(
-                controller: _reportDateController,
-                readOnly: true,
-                onTap: _pickReportDate,
-                decoration: InputDecoration(
-                  hintText: 'Select Report Date',
-                  filled: true,
-                  fillColor: SparshTheme.cardBackground,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                    borderSide: BorderSide.none,
+                  const SizedBox(height: 32),
+                  // Process Type Section
+                  _buildSectionTitle('Process Type'),
+                  const SizedBox(height: 8),
+                  _buildProcessTypeDropdown(),
+                  const SizedBox(height: 24),
+                  // Date Fields Section
+                  _buildSectionTitle('Date Information'),
+                  const SizedBox(height: 8),
+                  _buildDateField(
+                    'Submission Date',
+                    _submissionDateController,
+                    readOnly: true,
                   ),
-                  suffixIcon: const Icon(Icons.calendar_today),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.md, vertical: SparshSpacing.sm),
-                ),
-                validator: (val) => val == null || val.isEmpty ? 'Select date' : null,
-              ),
-              const SizedBox(height: 12),
-
-              _buildLabel('Area Code'),
-              _buildDropdownField(
-                value: _areaCode,
-                items: _areaCodes,
-                onChanged: (v) => setState(() => _areaCode = v),
-              ),
-              const SizedBox(height: 12),
-
-              _buildLabel('Mobile No'),
-              _buildTextField(
-                  'Mobile No',
-                  controller: _mobileController,
-                  keyboardType: TextInputType.phone,
-                  validator: (v) => v == null || v.isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-
-              _buildLabel('Purchaser / Retailer'),
-              _buildDropdownField(
-                value: _purchaserType,
-                items: _purchaserTypes,
-                onChanged: (v) => setState(() => _purchaserType = v),
-              ),
-              const SizedBox(height: 12),
-
-              _buildLabel('Party Name'),
-              _buildTextField('Party Name',
-                  controller: _partyNameController,
-                  maxLines: 2,
-                  validator: (v) => v == null || v.isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-
-              _buildLabel('Counter Type'),
-              _buildDropdownField(
-                value: _counterType,
-                items: _counterTypes,
-                onChanged: (v) => setState(() => _counterType = v),
-              ),
-              const SizedBox(height: 12),
-
-              _buildLabel('Pin Code *'),
-              _buildTextField('Enter Pin Code Number',
-                  controller: _pinCodeController,
-                  keyboardType: TextInputType.number,
-                  validator: (v) => v == null || v.isEmpty ? 'Required' : null),
-              TextButton(
-                onPressed: () {
-                  // TODO: lookup pin code
-                },
-                child: const Text('Update Pincode'),
-              ),
-              const SizedBox(height: 12),
-
-              _buildLabel('District *'),
-              _buildTextField('District',
-                  controller: _districtController,
-                  validator: (v) => v == null || v.isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-
-              _buildLabel('Visited City'),
-              _buildTextField('Visited City',
-                  controller: _visitedCityController),
-              const SizedBox(height: 12),
-
-              _buildLabel('Name & Designation of Person'),
-              _buildTextField('Name & Designation of Person',
-                  controller: _nameDesigController,
-                  maxLines: 2,
-                  validator: (v) => v == null || v.isEmpty ? 'Required' : null),
-              const SizedBox(height: 12),
-
-              _buildLabel('Topics discussed during meeting'),
-              _buildTextField('Topics discussed during meeting',
-                  controller: _topicsController,
-                  maxLines: 3,
-                  validator: (v) => v == null || v.isEmpty ? 'Required' : null),
-              const SizedBox(height: 24),
-
-              _buildLabel('Upload Images'),
-              const SizedBox(height: 8),
-              ...List.generate(_selectedImages.length, (i) {
-                final file = _selectedImages[i];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: SparshTheme.lightGreyBackground,
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                    border: Border.all(
-                        color: file != null
-                            ? SparshTheme.successGreen
-                            : SparshTheme.borderGrey,
-                        width: 1.5),
+                  const SizedBox(height: 16),
+                  _buildDateField(
+                    'Report Date',
+                    _reportDateController,
+                    onTap: _pickReportDate,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text('Document ${i + 1}',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14)),
-                          const Spacer(),
-                          if (file != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: SparshTheme.successLight,
-                                borderRadius: BorderRadius.circular(SparshBorderRadius.lg),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.check_circle,
-                                      color: SparshTheme.successGreen, size: 16),
-                                  SizedBox(width: 4),
-                                  Text('Uploaded',
-                                      style: TextStyle(
-                                          color: SparshTheme.successGreen
-                                          ,
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 13)),
-                                ],
-                              ),
-                            ),
-                        ],
+                  const SizedBox(height: 24),
+                  // Location Information Section
+                  _buildSectionTitle('Location Information'),
+                  const SizedBox(height: 8),
+                  _buildDropdownField(
+                    'Area Code',
+                    _areaCode,
+                    _areaCodes,
+                    (val) => setState(() => _areaCode = val),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'Mobile No',
+                    _mobileController,
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDropdownField(
+                    'Purchaser / Retailer',
+                    _purchaserType,
+                    _purchaserTypes,
+                    (val) => setState(() => _purchaserType = val),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'Party Name',
+                    _partyNameController,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDropdownField(
+                    'Counter Type',
+                    _counterType,
+                    _counterTypes,
+                    (val) => setState(() => _counterType = val),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'Pin Code',
+                    _pinCodeController,
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        // TODO: lookup pin code
+                      },
+                      child: const Text(
+                        'Update Pincode',
+                        style: TextStyle(color: Colors.blue),
                       ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _pickImage(i),
-                              icon: Icon(file != null
-                                  ? Icons.refresh
-                                  : Icons.upload_file,
-                                  size: 18),
-                              label:
-                              Text(file != null ? 'Replace' : 'Upload'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'District',
+                    _districtController,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'Visited City',
+                    _visitedCityController,
+                  ),
+                  const SizedBox(height: 24),
+                  // Meeting Details Section
+                  _buildSectionTitle('Meeting Details'),
+                  const SizedBox(height: 8),
+                  _buildTextField(
+                    'Name & Designation of Person',
+                    _nameDesigController,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'Topics discussed during meeting',
+                    _topicsController,
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 24),
+                  // Image Upload Section
+                  _buildSectionTitle('Upload Images'),
+                  const SizedBox(height: 8),
+                  ..._buildImageUploadSection(),
+                  const SizedBox(height: 32),
+                  // Submit Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Submit & New',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
                             ),
                           ),
-                          if (file != null) ...[
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _showImageDialog(file),
-                                icon: const Icon(Icons.visibility, size: 18),
-                                label: const Text('View'),
-                                style: ElevatedButton.styleFrom(
-                                    backgroundColor: SparshTheme.successGreen),
-                              ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[700],
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            const SizedBox(width: 10),
-                            IconButton(
-                              onPressed: () {
-                                setState(() {
-                                  _selectedImages.removeAt(i);
-                                });
-                              },
-                              icon: const Icon(Icons.remove_circle_outline,
-                                  color: SparshTheme.errorRed),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Submit & Exit',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
                             ),
-                          ]
-                        ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                );
-              }),
-              if (_selectedImages.length < 3) ...[
-                Center(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _selectedImages.add(null);
-                      });
-                    },
-                    icon: const Icon(Icons.add_photo_alternate),
-                    label: const Text('Add More Image'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildProcessTypeDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _processItem,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select process type',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items: _processdropdownItems
+          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+          .toList(),
+      onChanged: (val) => setState(() => _processItem = val),
+      validator: (v) => v == null || v == 'Select'
+          ? 'Please select a Process Type'
+          : null,
+    );
+  }
+
+  Widget _buildDateField(
+    String label,
+    TextEditingController controller, {
+    bool readOnly = false,
+    VoidCallback? onTap,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          readOnly: readOnly,
+          onTap: onTap,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Select date',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+            suffixIcon: readOnly
+                ? const Icon(Icons.lock, color: Colors.grey)
+                : const Icon(Icons.calendar_today, color: Colors.blue),
+          ),
+          validator: (val) =>
+              val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownField(
+    String label,
+    String? value,
+    List<String> items,
+    ValueChanged<String?> onChanged,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child: DropdownButton<String>(
+            isExpanded: true,
+            value: value,
+            underline: Container(),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
+            ),
+            items: items
+                .map((item) => DropdownMenuItem(
+                      value: item,
+                      child: Text(item),
+                    ))
+                .toList(),
+            onChanged: onChanged,
+            icon: const Icon(
+              Icons.keyboard_arrow_down,
+              color: Colors.grey,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTextField(
+    String label,
+    TextEditingController controller, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Enter $label',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+          ),
+          validator: (val) =>
+              val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildImageUploadSection() {
+    return [
+      ...List.generate(_selectedImages.length, (i) {
+        final file = _selectedImages[i];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: file != null ? Colors.green : Colors.grey[300]!,
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Document ${i + 1}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (file != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'Uploaded',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _pickImage(i),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        side: const BorderSide(color: Colors.blue),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            file != null ? Icons.refresh : Icons.upload_file,
+                            size: 18,
+                            color: Colors.blue,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            file != null ? 'Replace' : 'Upload',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (file != null) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _showImageDialog(file),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          side: const BorderSide(color: Colors.green),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.visibility, size: 18, color: Colors.green),
+                            SizedBox(width: 8),
+                            Text(
+                              'View',
+                              style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedImages.removeAt(i);
+                        });
+                      },
+                      icon: const Icon(Icons.remove_circle, color: Colors.red),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        );
+      }),
+      if (_selectedImages.length < 3)
+        Center(
+          child: TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _selectedImages.add(null);
+              });
+            },
+            icon: const Icon(Icons.add_photo_alternate, color: Colors.blue),
+            label: const Text(
+              'Add More Image',
+              style: TextStyle(color: Colors.blue),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Phone Call with Unregistered Purchasers Help',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Fill in all the required fields to record your phone call with unregistered purchasers. '
+                'Make sure to select the correct process type (Add/Update) and provide accurate location information.',
+                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'Got it',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 24),
-              ],
-
-              ElevatedButton(
-                onPressed: () => _onSubmit(exitAfter: false),
-                child: const Text('Submit & New'),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () => _onSubmit(exitAfter: true),
-                child: const Text('Submit & Exit'),
               ),
             ],
           ),
@@ -509,84 +951,4 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
       ),
     );
   }
-
-  Widget _buildLabel(String text) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Text(
-          text,
-          style: SparshTypography.labelLarge.copyWith(color: SparshTheme.textPrimary),
-        ),
-      );
-
-  Widget _buildTextField(String hint, {
-    required TextEditingController controller,
-    TextInputType keyboardType = TextInputType.text,
-    int maxLines = 1,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      maxLines: maxLines,
-      decoration: InputDecoration(
-        hintText: hint,
-        filled: true,
-        fillColor: SparshTheme.cardBackground,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-          borderSide: BorderSide.none,
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-            horizontal: SparshSpacing.md, vertical: SparshSpacing.sm),
-      ),
-      validator: validator,
-    );
-  }
-
-  Widget _buildDropdownField({
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-  }) {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-        border: Border.all(color: SparshTheme.borderGrey, width: 1),
-        color: SparshTheme.cardBackground,
-      ),
-      child: DropdownButton<String>(
-        isExpanded: true,
-        value: value,
-        underline: Container(),
-        items: items.map((item) =>
-            DropdownMenuItem(value: item, child: Text(item))).toList(),
-        onChanged: onChanged,
-      ),
-    );
-  }
-
-  Widget _buildDateField(TextEditingController controller, VoidCallback onTap,
-      String hint) =>
-      TextFormField(
-        controller: controller,
-        readOnly: true,
-        decoration: InputDecoration(
-          hintText: hint,
-          filled: true,
-          fillColor: SparshTheme.cardBackground,
-          suffixIcon: IconButton(
-              icon: const Icon(Icons.calendar_today), onPressed: onTap),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-              horizontal: SparshSpacing.md, vertical: SparshSpacing.sm),
-        ),
-        onTap: onTap,
-        validator: (val) => val == null || val.isEmpty ? 'Select date' : null,
-      );
 }

@@ -6,7 +6,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:learning2/features/dashboard/presentation/pages/notification_screen.dart';
 import 'package:learning2/features/dashboard/presentation/pages/profile_screen.dart';
 import 'package:learning2/features/dashboard/presentation/pages/dashboard_screen.dart';
-import 'package:learning2/features/dashboard/presentation/pages/schema.dart';
 import 'package:learning2/features/dashboard/presentation/pages/token_scan.dart';
 import 'package:learning2/features/dsr_entry/presentation/pages/dsr_entry.dart';
 import 'accounts_statement_page.dart';
@@ -21,7 +20,6 @@ import 'scheme_document_page.dart';
 import 'universal_outlet_registration_page.dart';
 import 'mail_screen.dart';
 import 'package:learning2/core/constants/fonts.dart';
-import 'package:learning2/core/theme/app_theme.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -709,11 +707,6 @@ class _HomeContentState extends State<HomeContent> {
         'fallbackIcon': Icons.track_changes_sharp,
       },
       {
-        'icon': 'assets/painter_kyc_registration.png',
-        'label': 'Painter KYC\nRegistration',
-        'fallbackIcon': Icons.app_registration,
-      },
-      {
         'icon': 'assets/universal_outlets_registration.png',
         'label': 'Universal Outlets\nRegistration',
         'fallbackIcon': Icons.store,
@@ -910,18 +903,13 @@ class _HomeContentState extends State<HomeContent> {
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(8.0),
-                        child: Image.asset(
-                          iconPath,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            // Fallback to icon if image fails to load
-                            return Icon(
-                              fallbackIcon,
-                              color: Colors.blue.shade600,
-                              size: 30,
-                            );
-                          },
-                        ),
+                        child: label.contains('Painter KYC\nTracking') 
+                          ? Icon(
+                              Icons.track_changes_sharp,
+                              color: featureColor,
+                              size: 32,
+                            )
+                          : _buildIconWidget(iconPath, fallbackIcon, featureColor),
                       ),
                     ),
                   ),
@@ -976,6 +964,47 @@ class _HomeContentState extends State<HomeContent> {
         ),
       ),
     );
+  }
+
+  Widget _buildIconWidget(String iconPath, IconData fallbackIcon, Color featureColor) {
+    return FutureBuilder<bool>(
+      future: _checkAssetExists(iconPath),
+      builder: (context, snapshot) {
+        if (snapshot.hasData && snapshot.data == true) {
+          return Image.asset(
+            iconPath,
+            fit: BoxFit.contain,
+            width: 32,
+            height: 32,
+            errorBuilder: (context, error, stackTrace) {
+              debugPrint('Failed to load image: $iconPath, Error: $error');
+              return Icon(
+                fallbackIcon,
+                color: featureColor,
+                size: 32,
+              );
+            },
+          );
+        } else {
+          // Use fallback icon if asset doesn't exist or is loading
+          return Icon(
+            fallbackIcon,
+            color: featureColor,
+            size: 32,
+          );
+        }
+      },
+    );
+  }
+
+  Future<bool> _checkAssetExists(String assetPath) async {
+    try {
+      await DefaultAssetBundle.of(context).load(assetPath);
+      return true;
+    } catch (e) {
+      debugPrint('Asset not found: $assetPath');
+      return false;
+    }
   }
 }
 

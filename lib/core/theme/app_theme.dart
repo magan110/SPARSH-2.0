@@ -467,7 +467,6 @@ class SparshTheme {
         primary: primaryBlue,
         secondary: primaryBlueAccent,
         surface: Color(0xFF1E293B),
-        background: Color(0xFF0F172A),
         brightness: Brightness.dark,
       ),
       cardTheme: const CardThemeData(

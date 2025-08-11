@@ -87,7 +87,7 @@ class _PainterKycTrackingPageState extends State<PainterKycTrackingPage>
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
+            colorScheme: const ColorScheme.light(
               primary: Colors.blue,
               onPrimary: Colors.white,
             ),
@@ -164,7 +164,7 @@ class _PainterKycTrackingPageState extends State<PainterKycTrackingPage>
                       children: [
                         Container(
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: Colors.blue,
                             shape: BoxShape.circle,
                           ),

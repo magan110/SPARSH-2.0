@@ -3,7 +3,18 @@ import 'package:http/http.dart' as http;
 import '../../utils/dsr_debug_helper.dart';
 
 class DSRActivityService {
-  static const String baseUrl = 'http://192.168.36.25';
+  static const String baseUrl = 'http://10.4.64.23';
+
+  // Normalize any dynamic value to a numeric string ("0" when empty/invalid)
+  String _numStr(dynamic value) {
+    final s = (value ?? '').toString().trim();
+    if (s.isEmpty) return '0';
+    // remove thousand separators if any
+    final normalized = s.replaceAll(',', '');
+    final d = double.tryParse(normalized);
+    if (d == null) return '0';
+    return d.toString();
+  }
 
   /// Get Customer/Retailer types dropdown
   Future<List<Map<String, dynamic>>> getCustomerTypes() async {
@@ -61,7 +72,39 @@ class DSRActivityService {
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      return _safeMapListCast(data);
+      // Controller returns { success: true, data: [ { Code, Description } ] }
+      final list = data is Map && data['data'] != null ? data['data'] : data;
+      final items = _safeMapListCast(list);
+      // Normalize to { value, text, Code, Description }
+      final normalized =
+          items
+              .map((e) {
+                final code =
+                    (e['Code'] ?? e['code'] ?? e['value'] ?? '')
+                        .toString()
+                        .trim();
+                final desc =
+                    (e['Description'] ??
+                            e['description'] ??
+                            e['text'] ??
+                            e['name'] ??
+                            '')
+                        .toString()
+                        .trim();
+                return {
+                  'value': code,
+                  'text': desc,
+                  'Code': code,
+                  'Description': desc,
+                };
+              })
+              .where(
+                (e) =>
+                    (e['Code']?.toString().isNotEmpty ?? false) ||
+                    (e['Description']?.toString().isNotEmpty ?? false),
+              )
+              .toList();
+      return normalized;
     } else {
       throw Exception('Failed to load product categories');
     }
@@ -76,7 +119,39 @@ class DSRActivityService {
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      return _safeMapListCast(data);
+      // Controller returns { success: true, data: [ { Code, Description } ] }
+      final list = data is Map && data['data'] != null ? data['data'] : data;
+      final items = _safeMapListCast(list);
+      // Normalize to { value, text, Code, Description }
+      final normalized =
+          items
+              .map((e) {
+                final code =
+                    (e['Code'] ?? e['code'] ?? e['value'] ?? '')
+                        .toString()
+                        .trim();
+                final desc =
+                    (e['Description'] ??
+                            e['description'] ??
+                            e['text'] ??
+                            e['name'] ??
+                            '')
+                        .toString()
+                        .trim();
+                return {
+                  'value': code,
+                  'text': desc,
+                  'Code': code,
+                  'Description': desc,
+                };
+              })
+              .where(
+                (e) =>
+                    (e['Code']?.toString().isNotEmpty ?? false) ||
+                    (e['Description']?.toString().isNotEmpty ?? false),
+              )
+              .toList();
+      return normalized;
     } else {
       throw Exception('Failed to load products for category $category');
     }
@@ -115,7 +190,38 @@ class DSRActivityService {
     );
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-      return _safeMapListCast(data['data']);
+      // Controller returns a raw List<DropdownOption> with { Code, Description }
+      final list = (data is Map && data['data'] != null) ? data['data'] : data;
+      final items = _safeMapListCast(list);
+      final normalized =
+          items
+              .map((e) {
+                final code =
+                    (e['Code'] ?? e['code'] ?? e['value'] ?? '')
+                        .toString()
+                        .trim();
+                final desc =
+                    (e['Description'] ??
+                            e['description'] ??
+                            e['text'] ??
+                            e['name'] ??
+                            '')
+                        .toString()
+                        .trim();
+                return {
+                  'value': code,
+                  'text': desc,
+                  'Code': code,
+                  'Description': desc,
+                };
+              })
+              .where(
+                (e) =>
+                    (e['Code']?.toString().isNotEmpty ?? false) ||
+                    (e['Description']?.toString().isNotEmpty ?? false),
+              )
+              .toList();
+      return normalized;
     } else {
       throw Exception('Failed to load exception reasons');
     }
@@ -425,15 +531,15 @@ class DSRActivityService {
         products.add({
           'repoCatg': activity['repoCatg'] ?? '',
           'catgPkPr': activity['catgPack'] ?? '',
-          'prodQnty': activity['prodQnty'] ?? '0',
-          'projQnty': activity['projQnty'] ?? '0',
+          'prodQnty': _numStr(activity['prodQnty']),
+          'projQnty': _numStr(activity['projQnty']),
           'actnRemk': activity['actnRemk'] ?? '',
         });
       } else if (mrktData == '06') {
         // Gift distribution
         gifts.add({
           'mrtlCode': activity['repoCatg'] ?? '',
-          'isueQnty': activity['prodQnty'] ?? '0',
+          'isueQnty': _numStr(activity['prodQnty']),
           'naration': activity['actnRemk'] ?? '',
         });
       }
@@ -462,8 +568,8 @@ class DSRActivityService {
       'brndSlWc': _safeListCast(dsrData['BrndSlWc']),
       'brndSlWp': _safeListCast(dsrData['BrndSlWp']),
       'prtDsCnt': dsrData['PrtDsCnt'] ?? 'N',
-      'slWcVlum': dsrData['SlWcVlum'] ?? '0',
-      'slWpVlum': dsrData['SlWpVlum'] ?? '0',
+      'slWcVlum': _numStr(dsrData['SlWcVlum']),
+      'slWpVlum': _numStr(dsrData['SlWpVlum']),
       'deptCode': dsrData['DeptCode'] ?? '',
       'pendWith': dsrData['PendWith'] ?? '',
       'createId': dsrData['CreateId'] ?? '2948',
@@ -473,26 +579,32 @@ class DSRActivityService {
       'ltLgDist': dsrData['LtLgDist'] ?? '0',
       'cityName': dsrData['CityName'] ?? '',
       'cusRtTyp': dsrData['CusRtTyp'] ?? '',
-      'isTilRtl': dsrData['IsTilRtl'] ?? 'NO',
-      'tileStck': dsrData['TileStck'] ?? 0,
+      // Server expects Y/N (char(1))
+      'isTilRtl':
+          (() {
+            final v = (dsrData['IsTilRtl'] ?? '').toString().toUpperCase();
+            if (v == 'Y' || v == 'YES' || v == '1' || v == 'TRUE') return 'Y';
+            return 'N';
+          })(),
+      'tileStck': double.tryParse((dsrData['TileStck'] ?? '').toString()) ?? 0,
 
       // Enrolment Slabs
-      'wcErlSlb': dsrData['WcErlSlb'] ?? '0',
-      'wpErlSlb': dsrData['WpErlSlb'] ?? '0',
-      'vpErlSlb': dsrData['VpErlSlb'] ?? '0',
+      'wcErlSlb': _numStr(dsrData['WcErlSlb']),
+      'wpErlSlb': _numStr(dsrData['WpErlSlb']),
+      'vpErlSlb': _numStr(dsrData['VpErlSlb']),
 
       // BW Stock
-      'bwStkWcc': dsrData['BwStkWcc'] ?? '0',
-      'bwStkWcp': dsrData['BwStkWcp'] ?? '0',
-      'bwStkVap': dsrData['BwStkVap'] ?? '0',
+      'bwStkWcc': _numStr(dsrData['BwStkWcc']),
+      'bwStkWcp': _numStr(dsrData['BwStkWcp']),
+      'bwStkVap': _numStr(dsrData['BwStkVap']),
 
       // Market Averages
-      'jkAvgWcc': dsrData['JkAvgWcc'] ?? '0',
-      'jkAvgWcp': dsrData['JkAvgWcp'] ?? '0',
-      'asAvgWcc': dsrData['AsAvgWcc'] ?? '0',
-      'asAvgWcp': dsrData['AsAvgWcp'] ?? '0',
-      'otAvgWcc': dsrData['OtAvgWcc'] ?? '0',
-      'otAvgWcp': dsrData['OtAvgWcp'] ?? '0',
+      'jkAvgWcc': _numStr(dsrData['JkAvgWcc']),
+      'jkAvgWcp': _numStr(dsrData['JkAvgWcp']),
+      'asAvgWcc': _numStr(dsrData['AsAvgWcc']),
+      'asAvgWcp': _numStr(dsrData['AsAvgWcp']),
+      'otAvgWcc': _numStr(dsrData['OtAvgWcc']),
+      'otAvgWcp': _numStr(dsrData['OtAvgWcp']),
 
       // Send activity details with document numbers synchronized
       'dsrActivityDtls': activityDetails,

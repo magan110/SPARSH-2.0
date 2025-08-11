@@ -45,17 +45,22 @@ class DSRDebugHelper {
 
   static void logDSRData(Map<String, dynamic> dsrData) {
     print('DSR DEBUG - Complete DSR Data Analysis:');
-    print('  Main DocuNumb: ${dsrData['DocuNumb']}');
-    print(
-      '  Main DocuNumb length: ${dsrData['DocuNumb']?.toString().length ?? 0}',
-    );
-    print(
-      '  Main DocuNumb valid: ${_isValidDocumentNumber(dsrData['DocuNumb']?.toString())}',
-    );
+    final mainDoc = (dsrData['DocuNumb'] ?? dsrData['docuNumb'])?.toString();
+    print('  Main DocuNumb: $mainDoc');
+    print('  Main DocuNumb length: ${mainDoc?.length ?? 0}');
+    print('  Main DocuNumb valid: ${_isValidDocumentNumber(mainDoc)}');
 
     if (dsrData['activityDetails'] is List) {
-      final activities =
-          dsrData['activityDetails'] as List<Map<String, dynamic>>;
+      // Safely convert dynamic list to List<Map<String, dynamic>>
+      final rawList = dsrData['activityDetails'] as List;
+      final List<Map<String, dynamic>> activities = [];
+      for (final item in rawList) {
+        if (item is Map<String, dynamic>) {
+          activities.add(item);
+        } else if (item is Map) {
+          activities.add(Map<String, dynamic>.from(item));
+        }
+      }
       logActivityDetails(activities);
     }
 
@@ -80,11 +85,6 @@ class DSRDebugHelper {
     final hour = now.hour.toString().padLeft(2, '0');
     final minute = now.minute.toString().padLeft(2, '0');
     final second = now.second.toString().padLeft(2, '0');
-    final millisecond = (now.millisecond ~/ 10).toString().padLeft(
-      2,
-      '0',
-    ); // Add more uniqueness
-
     final timestamp = '$year$month$day$hour$minute$second';
     final areaCodePadded =
         areaCode.length >= 3
@@ -111,7 +111,8 @@ class DSRDebugHelper {
     print('  Process Type: $procType');
 
     // Check main document number
-    final mainDocNumber = dsrData['DocuNumb']?.toString();
+    final mainDocNumber =
+        (dsrData['DocuNumb'] ?? dsrData['docuNumb'])?.toString();
     print('  Main document number validation:');
     logDocumentNumber('MAIN_DOC', mainDocNumber);
 

@@ -1,6 +1,5 @@
 // File: lib/universal_outlet_registration.dart
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
 
 class UniversalOutletRegistrationPage extends StatefulWidget {
   const UniversalOutletRegistrationPage({super.key});
@@ -172,7 +171,7 @@ class _UniversalOutletRegistrationPageState
                         children: [
                           Container(
                             padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
+                            decoration: const BoxDecoration(
                               color: Colors.blue,
                               shape: BoxShape.circle,
                             ),
@@ -684,7 +683,7 @@ class _UniversalOutletRegistrationPageState
                             },
                             activeColor: Colors.blue,
                           );
-                        }).toList(),
+                        }),
                         const SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,

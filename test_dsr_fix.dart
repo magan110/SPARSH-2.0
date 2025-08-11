@@ -12,14 +12,14 @@ void main() {
     '\t\n',
     'DSR001123456789',
     'VALID_DOC_123',
-    null ?? '',
+    '',
     '                ', // 16 spaces - this was causing the issue
   ];
   
   for (String docNumber in testDocNumbers) {
     bool isValid = !(docNumber.isEmpty ||
         docNumber.trim().isEmpty ||
-        docNumber.trim().length == 0 ||
+        docNumber.trim().isEmpty ||
         RegExp(r'^\s*$').hasMatch(docNumber));
     
     print('  Document: "$docNumber" (${docNumber.length} chars) -> Valid: $isValid');

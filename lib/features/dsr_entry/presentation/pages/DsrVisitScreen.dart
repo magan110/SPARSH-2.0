@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 
-import 'package:free_map/free_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:flutter_map/flutter_map.dart';
+// import 'package:free_map/free_map.dart';
+// import 'package:latlong2/latlong.dart';
+// import 'package:flutter_map/flutter_map.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../data/services/dsr_activity_service.dart';
 import 'package:dropdown_search/dropdown_search.dart';
+import 'dsr_exception_entry.dart';
 
 class DsrVisitScreen extends StatefulWidget {
   final String? docuNumb;
@@ -153,6 +154,9 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
   final TextEditingController currentWcController = TextEditingController();
   final TextEditingController currentWcpController = TextEditingController();
   final TextEditingController currentVapController = TextEditingController();
+  final TextEditingController tileAdhesiveStockController =
+      TextEditingController();
+  final TextEditingController issueDetailController = TextEditingController();
 
   // Market SKU controllers for dynamic list
   List<TextEditingController> marketSkuProductControllers = [];
@@ -275,17 +279,123 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
   }) {
     if (value == null) return null;
 
-    // Handle different possible key structures
-    final values =
-        options.map((e) {
-          return e[valueKey]?.toString() ??
-              e['Code']?.toString() ??
-              e['code']?.toString() ??
-              e['value']?.toString() ??
-              '';
-        }).toSet();
+    // Treat empty/whitespace selections as no selection
+    if (value.trim().isEmpty) return null;
 
-    return values.contains(value) ? value : null;
+    // Handle different possible key structures and ignore empty values
+    final values =
+        options
+            .map((e) {
+              final v =
+                  e[valueKey]?.toString() ??
+                  e['Code']?.toString() ??
+                  e['code']?.toString() ??
+                  e['value']?.toString() ??
+                  '';
+              return v.trim();
+            })
+            .where((v) => v.isNotEmpty)
+            .toSet();
+
+    return values.contains(value.trim()) ? value.trim() : null;
+  }
+
+  // Remove fully empty entries and de-duplicate by code (or desc when code missing)
+  List<Map<String, dynamic>> _sanitizeOptions(
+    List<Map<String, dynamic>> options,
+  ) {
+    final seen = <String>{};
+    final result = <Map<String, dynamic>>[];
+    for (final e in options) {
+      final code =
+          (e['Code'] ?? e['code'] ?? e['value'] ?? '').toString().trim();
+      final desc =
+          (e['Description'] ?? e['description'] ?? e['text'] ?? e['name'] ?? '')
+              .toString()
+              .trim();
+      if (code.isEmpty && desc.isEmpty) continue;
+      final key = code.isNotEmpty ? code : desc;
+      if (seen.contains(key)) continue;
+      seen.add(key);
+      result.add(e);
+    }
+    return result;
+  }
+
+  // ---- Option helpers for pickers ----
+  String _optCode(Map<String, dynamic> e) {
+    return (e['Code'] ?? e['code'] ?? e['value'] ?? '').toString();
+  }
+
+  String _optText(Map<String, dynamic> e) {
+    final code = _optCode(e);
+    final desc =
+        (e['Description'] ?? e['description'] ?? e['text'] ?? e['name'] ?? '')
+            .toString();
+    if (desc.isNotEmpty && code.isNotEmpty) return '$desc ($code)';
+    if (desc.isNotEmpty) return desc;
+    if (code.isNotEmpty) return code;
+    return 'Unknown';
+  }
+
+  Future<String?> _showOptionPicker({
+    required String title,
+    required List<Map<String, dynamic>> options,
+  }) async {
+    if (options.isEmpty) return null;
+    return await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      builder: (ctx) {
+        final opts = _sanitizeOptions(options);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(title, style: SparshTypography.heading5),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: opts.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (c, i) {
+                    final item = opts[i];
+                    final code = _optCode(item);
+                    final label = _optText(item);
+                    return ListTile(
+                      title: Text(label),
+                      onTap: () => Navigator.of(ctx).pop(code),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSnack(String message, {Color? color}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   // Location methods
@@ -356,6 +466,8 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     currentWcController.dispose();
     currentWcpController.dispose();
     currentVapController.dispose();
+    tileAdhesiveStockController.dispose();
+    issueDetailController.dispose();
 
     // Dispose product quantity controllers
     for (var controller in productQtyControllers) {
@@ -428,6 +540,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
 
         // Update controllers
         remarksController.text = remarks ?? '';
+        issueDetailController.text = issueDetail ?? '';
 
         // Update industry volume controllers
         slWcVolumeController.text = slWcVolume ?? '';
@@ -448,6 +561,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
           tileAdhesiveSeller = null;
         }
         tileAdhesiveStock = header['tileStck']?.toString() ?? '';
+        tileAdhesiveStockController.text = tileAdhesiveStock ?? '';
 
         // Customer details
         if (customer != null) {
@@ -490,39 +604,37 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
           wcStock = stockData['wcStock']?.toString() ?? '';
           wcpStock = stockData['wcpStock']?.toString() ?? '';
           vapStock = stockData['vapStock']?.toString() ?? '';
-
-          // Update controllers
-          wcStockController.text = wcStock ?? '';
-          wcpStockController.text = wcpStock ?? '';
-          vapStockController.text = vapStock ?? '';
+        } else {
+          // Fallback if stocks are provided in header or not available
+          wcStock = header['wcStock']?.toString() ?? wcStock;
+          wcpStock = header['wcpStock']?.toString() ?? wcpStock;
+          vapStock = header['vapStock']?.toString() ?? vapStock;
         }
 
-        // Brands Selling Checkboxes - reset first, then set based on API data
+        // Update controllers
+        wcStockController.text = wcStock ?? '';
+        wcpStockController.text = wcpStock ?? '';
+        vapStockController.text = vapStock ?? '';
+
+        // Reset brand selections then set from header arrays
         brandsWc.updateAll((key, value) => false);
         brandsWcp.updateAll((key, value) => false);
 
-        // Handle brand arrays from header - they are already arrays in the response
-        if (header['brndSlWc'] != null) {
-          final List<dynamic> brndSlWc =
-              header['brndSlWc'] is List
-                  ? header['brndSlWc']
-                  : [header['brndSlWc']];
-          for (var brand in brndSlWc) {
-            final brandStr = brand.toString().trim();
-            if (brandsWc.containsKey(brandStr)) {
+        if (header['brndSlWc'] is List) {
+          final List<dynamic> brndSlWc = header['brndSlWc'];
+          for (final brand in brndSlWc) {
+            final brandStr = brand?.toString().trim() ?? '';
+            if (brandStr.isNotEmpty && brandsWc.containsKey(brandStr)) {
               brandsWc[brandStr] = true;
             }
           }
         }
 
-        if (header['brndSlWp'] != null) {
-          final List<dynamic> brndSlWp =
-              header['brndSlWp'] is List
-                  ? header['brndSlWp']
-                  : [header['brndSlWp']];
-          for (var brand in brndSlWp) {
-            final brandStr = brand.toString().trim();
-            if (brandsWcp.containsKey(brandStr)) {
+        if (header['brndSlWp'] is List) {
+          final List<dynamic> brndSlWp = header['brndSlWp'];
+          for (final brand in brndSlWp) {
+            final brandStr = brand?.toString().trim() ?? '';
+            if (brandStr.isNotEmpty && brandsWcp.containsKey(brandStr)) {
               brandsWcp[brandStr] = true;
             }
           }
@@ -799,7 +911,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     try {
       final reasons = await _dsrService.getExceptionReasons();
       setState(() {
-        exceptionReasonOptions = reasons;
+        exceptionReasonOptions = _sanitizeOptions(reasons);
         isExceptionReasonLoading = false;
       });
     } catch (e) {
@@ -811,7 +923,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     try {
       final gifts = await _dsrService.getGiftTypes();
       setState(() {
-        giftTypeOptions = gifts;
+        giftTypeOptions = _sanitizeOptions(gifts);
         isGiftTypeLoading = false;
       });
     } catch (e) {
@@ -823,7 +935,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     try {
       final brands = await _dsrService.getBrands();
       setState(() {
-        brandOptions = brands;
+        brandOptions = _sanitizeOptions(brands);
         isBrandLoading = false;
       });
     } catch (e) {
@@ -836,7 +948,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
       final categories = await _dsrService.getProductCategories();
       print('Product Categories API Response: $categories');
       setState(() {
-        productCategoryOptions = categories;
+        productCategoryOptions = _sanitizeOptions(categories);
         isProductCategoryLoading = false;
       });
     } catch (e) {
@@ -854,7 +966,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     try {
       final products = await _dsrService.getProducts(category: category);
       print('Products for category $category: $products');
-      productsByCategory[category] = products;
+      productsByCategory[category] = _sanitizeOptions(products);
       isProductLoading[category] = false;
       setState(() {});
     } catch (e) {
@@ -938,8 +1050,9 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
       cityReason = null;
       tileAdhesiveSeller = null;
       tileAdhesiveStock = null;
+      tileAdhesiveStockController.clear();
       name = '';
-      kycStatus = 'Verified';
+      kycStatus = '';
 
       // Clear lists and add default rows
       productList.clear();
@@ -1004,6 +1117,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
       currentWcpController.clear();
       currentVapController.clear();
       remarksController.clear();
+      issueDetailController.clear();
 
       // Reset checkboxes
       brandsWc.updateAll((key, value) => false);
@@ -1045,6 +1159,49 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
     setState(() => isSubmitting = true);
 
     try {
+      // Guard: Do not allow submission if Report Date is 3 or more days old
+      DateTime? _parseReportDate(String? s) {
+        if (s == null || s.trim().isEmpty) return null;
+        final t = s.trim();
+        // Try DD/MM/YYYY
+        final m = RegExp(r'^(\d{2})\/(\d{2})\/(\d{4})$').firstMatch(t);
+        if (m != null) {
+          final day = int.tryParse(m.group(1)!);
+          final mon = int.tryParse(m.group(2)!);
+          final yr = int.tryParse(m.group(3)!);
+          if (day != null && mon != null && yr != null) {
+            return DateTime(yr, mon, day);
+          }
+        }
+        // Try ISO-like (YYYY-MM-DD or with time)
+        try {
+          final iso = t.contains('T') ? t.split('T').first : t.split(' ').first;
+          return DateTime.parse(iso);
+        } catch (_) {}
+        return null;
+      }
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final selected = _parseReportDate(reportDate);
+      if (selected != null) {
+        final sel = DateTime(selected.year, selected.month, selected.day);
+        final diffDays = today.difference(sel).inDays;
+        if (diffDays >= 3) {
+          // 3 or more days old: block submission
+          setState(() => isSubmitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Submission blocked: Report Date must be within the last 3 days .',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+      }
+
       // For new DSR (processType = 'A'), generate document number from backend
       // For update/delete operations, use the selected pending DSR document number
       String docNumber = '';
@@ -1803,6 +1960,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                       TextFormField(
                         controller: nameController,
                         decoration: _fantasticInputDecoration('Name'),
+                        readOnly: isReadOnly,
                         onChanged: (v) => name = v,
                       ),
                       const SizedBox(height: SparshSpacing.sm),
@@ -1829,19 +1987,75 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         ),
                         readOnly: true,
                         onTap: () async {
+                          if (isReadOnly) return;
+                          final now = DateTime.now();
                           final picked = await showDatePicker(
                             context: context,
-                            initialDate: DateTime.now(),
-                            firstDate: DateTime.now().subtract(
-                              const Duration(days: 3),
-                            ),
-                            lastDate: DateTime.now(),
+                            initialDate: DateTime(now.year, now.month, now.day),
+                            firstDate: DateTime(
+                              2000,
+                              1,
+                              1,
+                            ), // allow all past dates
+                            lastDate: DateTime(
+                              now.year,
+                              now.month,
+                              now.day,
+                            ), // no future dates
                           );
                           if (picked != null) {
                             setState(() {
                               reportDate =
                                   "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}";
                             });
+
+                            // Show popup only if date is older than last 3 days
+                            final today = DateTime(
+                              now.year,
+                              now.month,
+                              now.day,
+                            );
+                            final sel = DateTime(
+                              picked.year,
+                              picked.month,
+                              picked.day,
+                            );
+                            final diffDays = today.difference(sel).inDays;
+                            if (diffDays >= 3) {
+                              if (!mounted) return;
+                              showDialog(
+                                context: context,
+                                builder:
+                                    (ctx) => AlertDialog(
+                                      title: const Text('Exception Entry'),
+                                      content: const Text(
+                                        'You selected a date older than 3 days.\nIf this requires approval, proceed to DSR Exception Entry.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed:
+                                              () => Navigator.of(ctx).pop(),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: () {
+                                            Navigator.of(ctx).pop();
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder:
+                                                    (_) =>
+                                                        const DsrExceptionEntryPage(),
+                                              ),
+                                            );
+                                          },
+                                          child: const Text(
+                                            'Go to DSR Exception Entry',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                              );
+                            }
                           }
                         },
                         controller: TextEditingController(text: reportDate),
@@ -1854,6 +2068,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         decoration: _fantasticInputDecoration(
                           'Market Name (Location Or Road Name) *',
                         ),
+                        readOnly: isReadOnly,
                         onChanged: (v) => marketName = v,
                         validator:
                             (v) => v == null || v.isEmpty ? 'Required' : null,
@@ -1877,9 +2092,11 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                         value: opt,
                                         groupValue: validDisplayContest,
                                         onChanged:
-                                            (v) => setState(
-                                              () => displayContest = v,
-                                            ),
+                                            isReadOnly
+                                                ? null
+                                                : (v) => setState(
+                                                  () => displayContest = v,
+                                                ),
                                       ),
                                       Text(displayContestLabels[opt] ?? opt),
                                     ],
@@ -1904,9 +2121,11 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                         value: opt,
                                         groupValue: pendingIssue,
                                         onChanged:
-                                            (v) => setState(
-                                              () => pendingIssue = v,
-                                            ),
+                                            isReadOnly
+                                                ? null
+                                                : (v) => setState(
+                                                  () => pendingIssue = v,
+                                                ),
                                       ),
                                       Text(pendingIssueLabels[opt] ?? opt),
                                     ],
@@ -1930,13 +2149,18 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                   )
                                   .toList(),
                           onChanged:
-                              (v) => setState(() => pendingIssueDetail = v),
+                              isReadOnly
+                                  ? null
+                                  : (v) =>
+                                      setState(() => pendingIssueDetail = v),
                           validator: (v) => v == null ? 'Required' : null,
                         ),
                         TextFormField(
+                          controller: issueDetailController,
                           decoration: _fantasticInputDecoration(
                             'If Yes, Specify Issue',
                           ),
+                          readOnly: isReadOnly,
                           onChanged: (v) => issueDetail = v,
                           validator:
                               (v) => v == null || v.isEmpty ? 'Required' : null,
@@ -2307,13 +2531,17 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Order Booked in call/e meet',
-                            style: SparshTypography.bodyBold,
+                          Expanded(
+                            child: Text(
+                              'Order Booked in call/e meet',
+                              style: SparshTypography.bodyBold,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           IconButton(
                             icon: const Icon(Icons.add_circle_outline),
-                            onPressed: addProductRow,
+                            onPressed: isReadOnly ? null : addProductRow,
                           ),
                         ],
                       ),
@@ -2343,56 +2571,52 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                       decoration: _fantasticInputDecoration(
                                         'Product Category',
                                       ),
+                                      isExpanded: true,
+                                      selectedItemBuilder: (_) {
+                                        final items = _sanitizeOptions(
+                                          productCategoryOptions,
+                                        );
+                                        return items.map((e) {
+                                          final label = _optText(e);
+                                          return Text(
+                                            label,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          );
+                                        }).toList();
+                                      },
                                       items:
-                                          productCategoryOptions.map((e) {
-                                            // Handle different possible key structures
-                                            final code =
-                                                e['Code']?.toString() ??
-                                                e['code']?.toString() ??
-                                                e['value']?.toString() ??
-                                                '';
-                                            final description =
-                                                e['Description']?.toString() ??
-                                                e['description']?.toString() ??
-                                                e['text']?.toString() ??
-                                                e['name']?.toString() ??
-                                                '';
-
-                                            print(
-                                              'Category item: $e, code: $code, description: $description',
-                                            );
-
-                                            String displayText;
-                                            if (description.isNotEmpty &&
-                                                code.isNotEmpty) {
-                                              displayText =
-                                                  '$description ($code)';
-                                            } else if (description.isNotEmpty) {
-                                              displayText = description;
-                                            } else if (code.isNotEmpty) {
-                                              displayText = code;
-                                            } else {
-                                              displayText = 'Unknown Category';
-                                            }
-
+                                          _sanitizeOptions(
+                                            productCategoryOptions,
+                                          ).map((e) {
+                                            final code = _optCode(e);
+                                            final label = _optText(e);
                                             return DropdownMenuItem<String>(
                                               value:
                                                   code.isNotEmpty
                                                       ? code
                                                       : e.toString(),
-                                              child: Text(displayText),
+                                              child: Text(
+                                                label,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
                                             );
                                           }).toList(),
-                                      onChanged: (v) async {
-                                        setState(
-                                          () =>
-                                              productList[idx]['category'] =
-                                                  v ?? '',
-                                        );
-                                        if (v != null && v.isNotEmpty) {
-                                          await _fetchProductsForCategory(v);
-                                        }
-                                      },
+                                      onChanged:
+                                          isReadOnly
+                                              ? null
+                                              : (v) async {
+                                                setState(() {
+                                                  productList[idx]['category'] =
+                                                      v ?? '';
+                                                  productList[idx]['sku'] = '';
+                                                });
+                                                if (v != null && v.isNotEmpty) {
+                                                  await _fetchProductsForCategory(
+                                                    v,
+                                                  );
+                                                }
+                                              },
                                     ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 productList[idx]['category'] == null
@@ -2406,71 +2630,109 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                       productError[productList[idx]['category']]!,
                                       style: const TextStyle(color: Colors.red),
                                     )
-                                    : DropdownButtonFormField<String>(
-                                      value: _dropdownValue(
-                                        productList[idx]['sku'],
-                                        productsByCategory[productList[idx]['category']] ??
-                                            [],
-                                      ),
-                                      decoration: _fantasticInputDecoration(
-                                        'SKU',
-                                      ),
-                                      items:
-                                          (productsByCategory[productList[idx]['category']] ??
-                                                  [])
-                                              .map((e) {
-                                                // Handle different possible key structures
-                                                final code =
-                                                    e['Code']?.toString() ??
-                                                    e['code']?.toString() ??
-                                                    e['value']?.toString() ??
-                                                    '';
-                                                final description =
-                                                    e['Description']
-                                                        ?.toString() ??
-                                                    e['description']
-                                                        ?.toString() ??
-                                                    e['text']?.toString() ??
-                                                    e['name']?.toString() ??
-                                                    '';
-
-                                                String displayText;
-                                                if (description.isNotEmpty &&
-                                                    code.isNotEmpty) {
-                                                  displayText =
-                                                      '$description ($code)';
-                                                } else if (description
-                                                    .isNotEmpty) {
-                                                  displayText = description;
-                                                } else if (code.isNotEmpty) {
-                                                  displayText = code;
-                                                } else {
-                                                  displayText =
-                                                      'Unknown Product';
+                                    : GestureDetector(
+                                      onTap:
+                                          (!isReadOnly &&
+                                                  (productList[idx]['category']
+                                                          ?.isNotEmpty ??
+                                                      false))
+                                              ? () async {
+                                                final category =
+                                                    productList[idx]['category']!;
+                                                // If products for the category are still loading
+                                                if (isProductLoading[category] ==
+                                                    true) {
+                                                  _showSnack(
+                                                    'Loading SKUs, please wait...',
+                                                  );
+                                                  return;
+                                                }
+                                                // If there was a load error
+                                                if (productError[category] !=
+                                                    null) {
+                                                  _showSnack(
+                                                    productError[category]!,
+                                                    color: Colors.red,
+                                                  );
+                                                  return;
+                                                }
+                                                // If list is empty, try to fetch
+                                                if ((productsByCategory[category] ??
+                                                        [])
+                                                    .isEmpty) {
+                                                  await _fetchProductsForCategory(
+                                                    category,
+                                                  );
+                                                  if ((productsByCategory[category] ??
+                                                          [])
+                                                      .isEmpty) {
+                                                    _showSnack(
+                                                      'No SKUs found for selected category',
+                                                      color: Colors.orange,
+                                                    );
+                                                    return;
+                                                  }
                                                 }
 
-                                                return DropdownMenuItem<String>(
-                                                  value:
-                                                      code.isNotEmpty
-                                                          ? code
-                                                          : e.toString(),
-                                                  child: Text(displayText),
-                                                );
-                                              })
-                                              .toList(),
-                                      onChanged:
-                                          (v) => setState(
-                                            () =>
-                                                productList[idx]['sku'] =
-                                                    v ?? '',
+                                                final opts =
+                                                    productsByCategory[category] ??
+                                                    [];
+                                                final picked =
+                                                    await _showOptionPicker(
+                                                      title:
+                                                          'Select Product SKU',
+                                                      options: opts,
+                                                    );
+                                                if (picked != null) {
+                                                  setState(() {
+                                                    productList[idx]['sku'] =
+                                                        picked;
+                                                  });
+                                                }
+                                              }
+                                              : null,
+                                      child: AbsorbPointer(
+                                        child: TextFormField(
+                                          readOnly: true,
+                                          decoration: _fantasticInputDecoration(
+                                            'Product SKU',
                                           ),
+                                          controller: TextEditingController(
+                                            text: () {
+                                              final sku =
+                                                  productList[idx]['sku'] ?? '';
+                                              final opts =
+                                                  productsByCategory[productList[idx]['category']] ??
+                                                  [];
+                                              final m = _sanitizeOptions(
+                                                opts,
+                                              ).firstWhere(
+                                                (e) => _optCode(e) == sku,
+                                                orElse: () => const {},
+                                              );
+                                              return m.isEmpty
+                                                  ? ''
+                                                  : _optText(m);
+                                            }(),
+                                          ),
+                                          maxLines: 1,
+                                          style: const TextStyle(
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 TextFormField(
-                                  controller:
-                                      productQtyControllers.length > idx
-                                          ? productQtyControllers[idx]
-                                          : null,
+                                  controller: () {
+                                    if (productQtyControllers.length <= idx) {
+                                      final c = TextEditingController(
+                                        text: productList[idx]['qty'] ?? '',
+                                      );
+                                      productQtyControllers.add(c);
+                                    }
+                                    return productQtyControllers[idx];
+                                  }(),
                                   decoration: _fantasticInputDecoration('Qty'),
                                   keyboardType: TextInputType.number,
                                   readOnly: isReadOnly,
@@ -2483,7 +2745,11 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                       Icons.delete_outline,
                                       color: SparshTheme.errorRed,
                                     ),
-                                    onPressed: () => removeProductRow(idx),
+                                    // Disable delete in read-only mode
+                                    onPressed:
+                                        isReadOnly
+                                            ? null
+                                            : () => removeProductRow(idx),
                                   ),
                                 ),
                               ],
@@ -2506,13 +2772,17 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Market -- WCP (Highest selling SKU)',
-                            style: SparshTypography.bodyBold,
+                          Expanded(
+                            child: Text(
+                              'Market -- WCP (Highest selling SKU)',
+                              style: SparshTypography.bodyBold,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           IconButton(
                             icon: const Icon(Icons.add_circle_outline),
-                            onPressed: addMarketSkuRow,
+                            onPressed: isReadOnly ? null : addMarketSkuRow,
                           ),
                         ],
                       ),
@@ -2555,11 +2825,13 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                               )
                                               .toList(),
                                       onChanged:
-                                          (v) => setState(
-                                            () =>
-                                                marketSkuList[idx]['brand'] =
-                                                    v ?? '',
-                                          ),
+                                          isReadOnly
+                                              ? null
+                                              : (v) => setState(
+                                                () =>
+                                                    marketSkuList[idx]['brand'] =
+                                                        v ?? '',
+                                              ),
                                     ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 TextFormField(
@@ -2609,7 +2881,10 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                       Icons.delete_outline,
                                       color: SparshTheme.errorRed,
                                     ),
-                                    onPressed: () => removeMarketSkuRow(idx),
+                                    onPressed:
+                                        isReadOnly
+                                            ? null
+                                            : () => removeMarketSkuRow(idx),
                                   ),
                                 ),
                               ],
@@ -2632,13 +2907,17 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Gift Distribution',
-                            style: SparshTypography.bodyBold,
+                          Expanded(
+                            child: Text(
+                              'Gift Distribution',
+                              style: SparshTypography.bodyBold,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           IconButton(
                             icon: const Icon(Icons.add_circle_outline),
-                            onPressed: addGiftRow,
+                            onPressed: isReadOnly ? null : addGiftRow,
                           ),
                         ],
                       ),
@@ -2681,11 +2960,13 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                               )
                                               .toList(),
                                       onChanged:
-                                          (v) => setState(
-                                            () =>
-                                                giftList[idx]['giftType'] =
-                                                    v ?? '',
-                                          ),
+                                          isReadOnly
+                                              ? null
+                                              : (v) => setState(
+                                                () =>
+                                                    giftList[idx]['giftType'] =
+                                                        v ?? '',
+                                              ),
                                     ),
                                 const SizedBox(height: SparshSpacing.xs),
                                 TextFormField(
@@ -2707,7 +2988,10 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                       Icons.delete_outline,
                                       color: SparshTheme.errorRed,
                                     ),
-                                    onPressed: () => removeGiftRow(idx),
+                                    onPressed:
+                                        isReadOnly
+                                            ? null
+                                            : () => removeGiftRow(idx),
                                   ),
                                 ),
                               ],
@@ -2746,7 +3030,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                             (v) => setState(() => tileAdhesiveSeller = v),
                       ),
                       TextFormField(
-                        initialValue: tileAdhesiveStock,
+                        controller: tileAdhesiveStockController,
                         decoration: _fantasticInputDecoration(
                           'Tile Adhesive Stock',
                         ),
@@ -2811,28 +3095,56 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                             exceptionReasonError!,
                             style: const TextStyle(color: Colors.red),
                           )
-                          : DropdownButtonFormField<String>(
-                            value: _dropdownValue(
-                              cityReason,
+                          : (() {
+                            final opts = _sanitizeOptions(
                               exceptionReasonOptions,
-                            ),
-                            decoration: _fantasticInputDecoration(
-                              'Select Reason',
-                            ),
-                            items:
-                                exceptionReasonOptions
-                                    .map(
-                                      (e) => DropdownMenuItem<String>(
-                                        value: e['value']?.toString() ?? '',
-                                        child: Text(
-                                          '${e['text'] ?? e['value'] ?? ''} (${e['value'] ?? ''})',
-                                        ),
+                            );
+                            if (opts.isEmpty) {
+                              return const Text(
+                                'No reasons available',
+                                style: TextStyle(color: Colors.orange),
+                              );
+                            }
+                            return DropdownButtonFormField<String>(
+                              value: _dropdownValue(
+                                cityReason,
+                                exceptionReasonOptions,
+                                valueKey: 'Code',
+                              ),
+                              decoration: _fantasticInputDecoration(
+                                'Select Reason',
+                              ),
+                              isExpanded: true,
+                              selectedItemBuilder:
+                                  (_) =>
+                                      opts.map((e) {
+                                        final label = _optText(e);
+                                        return Text(
+                                          label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        );
+                                      }).toList(),
+                              items:
+                                  opts.map((e) {
+                                    final code = _optCode(e);
+                                    final label = _optText(e);
+                                    return DropdownMenuItem<String>(
+                                      value:
+                                          code.isNotEmpty ? code : e.toString(),
+                                      child: Text(
+                                        label.isNotEmpty ? label : 'Unknown',
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    )
-                                    .toList(),
-                            onChanged:
-                                (v) => setState(() => cityReason = v ?? ''),
-                          ),
+                                    );
+                                  }).toList(),
+                              onChanged:
+                                  isReadOnly
+                                      ? null
+                                      : (v) =>
+                                          setState(() => cityReason = v ?? ''),
+                            );
+                          })(),
                     ],
                   ),
                 ),

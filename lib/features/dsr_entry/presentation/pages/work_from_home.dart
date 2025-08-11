@@ -18,48 +18,76 @@ class WorkFromHome extends StatefulWidget {
   State<WorkFromHome> createState() => _WorkFromHomeState();
 }
 
-class _WorkFromHomeState extends State<WorkFromHome> {
+class _WorkFromHomeState extends State<WorkFromHome>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+  
+  final _formKey = GlobalKey<FormState>();
+  
   String? _processItem = 'Select';
   List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
   bool _isLoadingProcessTypes = false;
   String? _processTypeError;
-
+  
   // Document-number dropdown state
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
-
+  
   // Geolocation
   Position? _currentPosition;
 
-
   final TextEditingController _submissionDateController = TextEditingController();
-  final TextEditingController _reportDateController     = TextEditingController();
+  final TextEditingController _reportDateController = TextEditingController();
   DateTime? _selectedSubmissionDate;
   DateTime? _selectedReportDate;
-
-  // ─── NEW CONTROLLERS ─────────────────────────────────────────────────────────
+  
+  // Activity details controllers
   final TextEditingController _activityDetails1Controller = TextEditingController();
   final TextEditingController _activityDetails2Controller = TextEditingController();
   final TextEditingController _activityDetails3Controller = TextEditingController();
-  final TextEditingController _otherPointsController      = TextEditingController();
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  final List<int> _uploadRows       = [0];
+  final TextEditingController _otherPointsController = TextEditingController();
+  
+  // Image upload
+  final List<int> _uploadRows = [0];
   final List<File?> _selectedImages = [null];
-  final ImagePicker _picker         = ImagePicker();
-  final _formKey                    = GlobalKey<FormState>();
-
+  final ImagePicker _picker = ImagePicker();
+  
+  // Document number
   final _documentNumberController = TextEditingController();
   String? _documentNumber;
 
   @override
   void initState() {
     super.initState();
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
+    _fadeController.forward();
+    
     _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
     _setSubmissionDateToToday();
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _submissionDateController.dispose();
+    _reportDateController.dispose();
+    _activityDetails1Controller.dispose();
+    _activityDetails2Controller.dispose();
+    _activityDetails3Controller.dispose();
+    _otherPointsController.dispose();
+    _documentNumberController.dispose();
+    super.dispose();
   }
 
   Future<void> _initGeolocation() async {
@@ -116,7 +144,7 @@ class _WorkFromHomeState extends State<WorkFromHome> {
       _selectedDocuNumb = null;
     });
     final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=55' // Use correct param for this activity
+      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=55' // Use correct param for this activity
     );
     try {
       final resp = await http.get(uri);
@@ -144,7 +172,7 @@ class _WorkFromHomeState extends State<WorkFromHome> {
 
   // Fetch details for a document number and populate fields
   Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse('http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
+    final uri = Uri.parse('http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
     try {
       final resp = await http.get(uri);
       if (resp.statusCode == 200) {
@@ -154,27 +182,11 @@ class _WorkFromHomeState extends State<WorkFromHome> {
           _activityDetails2Controller.text = data['dsrRem02'] ?? '';
           _activityDetails3Controller.text = data['dsrRem03'] ?? '';
           _otherPointsController.text = data['dsrRem04'] ?? '';
-          _submissionDateController.text = data['SubmissionDate']?.toString()?.substring(0, 10) ?? '';
-          _reportDateController.text = data['ReportDate']?.toString()?.substring(0, 10) ?? '';
+          _submissionDateController.text = data['SubmissionDate']?.toString().substring(0, 10) ?? '';
+          _reportDateController.text = data['ReportDate']?.toString().substring(0, 10) ?? '';
         });
       }
     } catch (_) {}
-  }
-
-  @override
-  void dispose() {
-    _submissionDateController.dispose();
-    _reportDateController.dispose();
-
-    // ─── DISPOSE NEW CONTROLLERS ──────────────────────────────────────────────
-    _activityDetails1Controller.dispose();
-    _activityDetails2Controller.dispose();
-    _activityDetails3Controller.dispose();
-    _otherPointsController.dispose();
-    _documentNumberController.dispose();
-    // ──────────────────────────────────────────────────────────────────────────
-
-    super.dispose();
   }
 
   void _setSubmissionDateToToday() {
@@ -191,17 +203,6 @@ class _WorkFromHomeState extends State<WorkFromHome> {
       initialDate: now,
       firstDate: DateTime(now.year - 10), // Allow any past date (last 10 years)
       lastDate: now,  // Only allow up to today
-      builder: (context, child) => Theme(
-        data: ThemeData.light().copyWith(
-          colorScheme: const ColorScheme.light(
-            primary: SparshTheme.primaryBlueAccent,
-            onPrimary: Colors.white,
-            onSurface: SparshTheme.textPrimary,
-          ),
-          dialogTheme: const DialogThemeData(backgroundColor: Colors.white),
-        ),
-        child: child!,
-      ),
     );
     if (picked != null) {
       if (picked.isBefore(threeDaysAgo)) {
@@ -264,27 +265,13 @@ class _WorkFromHomeState extends State<WorkFromHome> {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        child: SizedBox(
+        child: Container(
           width: MediaQuery.of(context).size.width * 0.8,
           height: MediaQuery.of(context).size.height * 0.6,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.file(
-              imageFile,
+          decoration: BoxDecoration(
+            image: DecorationImage(
               fit: BoxFit.contain,
-              errorBuilder: (c, e, s) => Container(
-                color: Colors.grey[300],
-                child: const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text('Unable to load image', style: TextStyle(color: Colors.grey)),
-                    ],
-                  ),
-                ),
-              ),
+              image: FileImage(imageFile),
             ),
           ),
         ),
@@ -293,7 +280,7 @@ class _WorkFromHomeState extends State<WorkFromHome> {
   }
 
   Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    final url = Uri.parse('http://192.168.36.25/api/DsrTry');
+    final url = Uri.parse('http://10.4.64.23/api/DsrTry');
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
@@ -308,18 +295,6 @@ class _WorkFromHomeState extends State<WorkFromHome> {
     }
   }
 
-  InputDecoration get _multilineDecoration => InputDecoration(
-    hintText: '',
-    filled: true,
-    fillColor: SparshTheme.cardBackground,
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-      borderSide: BorderSide.none,
-    ),
-    contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.md, vertical: SparshSpacing.sm),
-    isCollapsed: true,
-  );
-
   // Add a method to reset the form (clear document number)
   void _resetForm() {
     setState(() {
@@ -333,31 +308,31 @@ class _WorkFromHomeState extends State<WorkFromHome> {
 
   Future<void> _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
-
     // ensure we have location
     if (_currentPosition == null) {
       await _initGeolocation();
     }
 
-
     final dsrData = {
       'ActivityType': 'Work From Home',
-      'SubmissionDate': _selectedSubmissionDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      'ReportDate': _selectedReportDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
+      'SubmissionDate': _submissionDateController.text,
+      'ReportDate': _reportDateController.text,
       'dsrRem01': _activityDetails1Controller.text,
       'dsrRem02': _activityDetails2Controller.text,
       'dsrRem03': _activityDetails3Controller.text,
       'dsrRem04': _otherPointsController.text,
       'latitude': _currentPosition?.latitude.toString() ?? '',
       'longitude': _currentPosition?.longitude.toString() ?? '',
-      'DsrParam': '54',
+      'DsrParam': '55',
       'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
       'ProcessType': _processItem == 'Update' ? 'U' : 'A',
+      'CreateId': '2948',
+      'UpdateId': '2948',
     };
-
+    
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/' + (_processItem == 'Update' ? 'update' : '')
+        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}'
       );
       final resp = _processItem == 'Update'
           ? await http.put(
@@ -370,10 +345,9 @@ class _WorkFromHomeState extends State<WorkFromHome> {
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode(dsrData),
             );
-
       final success = (_processItem == 'Update' && resp.statusCode == 204) ||
                       (_processItem != 'Update' && resp.statusCode == 201);
-
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(success
@@ -385,6 +359,7 @@ class _WorkFromHomeState extends State<WorkFromHome> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      
       if (success) {
         if (exitAfter) {
           Navigator.of(context).pop();
@@ -420,12 +395,13 @@ class _WorkFromHomeState extends State<WorkFromHome> {
         ..clear()
         ..add(null);
     });
-    _formKey.currentState!.reset();
+    _formKey.currentState?.reset();
+    _setSubmissionDateToToday();
   }
 
   Future<String?> _fetchDocumentNumberFromServer() async {
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/generateDocumentNumber');
+      final url = Uri.parse('http://10.4.64.23/api/DsrTry/generateDocumentNumber');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -459,301 +435,630 @@ class _WorkFromHomeState extends State<WorkFromHome> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        leading: IconButton(
-          onPressed: () => Navigator.push(
-              context, MaterialPageRoute(builder: (_) => const DsrEntry())),
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black, size: 22),
+        backgroundColor: Colors.blue,
+        elevation: 0,
+        centerTitle: true,
+        title: const Text(
+          'Work From Home',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
         ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Work From Home',
-              style: SparshTypography.heading2.copyWith(color: Colors.black),
-            ),
-            Text(
-              'Daily Sales Report Entry',
-              style: SparshTypography.body.copyWith(color: Colors.black54),
-            ),
-          ],
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const DsrEntry()),
+          ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.help_outline, color: Colors.black, size: 24),
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Help information for Work From Home'),
-                duration: Duration(seconds: 2),
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            onPressed: () => _showHelpDialog(),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header Section
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blue[100]!),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: const BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.home_work,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Work From Home',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Record details of your work from home activities',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  // Process Type Section
+                  _buildSectionTitle('Process Type'),
+                  const SizedBox(height: 8),
+                  _buildProcessTypeDropdown(),
+                  const SizedBox(height: 24),
+                  // Document Number (for Update)
+                  if (_processItem == 'Update') ...[
+                    _buildSectionTitle('Document Number'),
+                    const SizedBox(height: 8),
+                    _loadingDocs
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildDocumentNumberDropdown(),
+                    const SizedBox(height: 24),
+                  ],
+                  // Date Fields Section
+                  _buildSectionTitle('Date Information'),
+                  const SizedBox(height: 8),
+                  _buildDateField(
+                    'Submission Date',
+                    _submissionDateController,
+                    readOnly: true,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDateField(
+                    'Report Date',
+                    _reportDateController,
+                    onTap: _pickReportDate,
+                  ),
+                  const SizedBox(height: 24),
+                  // Activity Details Section
+                  _buildSectionTitle('Activity Details'),
+                  const SizedBox(height: 8),
+                  _buildTextField(
+                    'Activity Details 1',
+                    _activityDetails1Controller,
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'Activity Details 2',
+                    _activityDetails2Controller,
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'Activity Details 3',
+                    _activityDetails3Controller,
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    'Other Points',
+                    _otherPointsController,
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 24),
+                  // Image Upload Section
+                  _buildSectionTitle('Upload Images'),
+                  const SizedBox(height: 8),
+                  ..._buildImageUploadSection(),
+                  const SizedBox(height: 32),
+                  // Submit Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            _processItem == 'Update' ? 'Update & New' : 'Submit & New',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[700],
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            _processItem == 'Update' ? 'Update & Exit' : 'Submit & Exit',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-          )
-        ],
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
+          ),
+        ),
       ),
-      body: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(SparshSpacing.md),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildProcessTypeDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _processItem,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select process type',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items: _processdropdownItems
+          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+          .toList(),
+      onChanged: (val) async {
+        setState(() {
+          _processItem = val;
+        });
+        if (val == 'Update') await _fetchDocumentNumbers();
+      },
+      validator: (v) => v == null || v == 'Select'
+          ? 'Please select a Process Type'
+          : null,
+    );
+  }
+
+  Widget _buildDocumentNumberDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedDocuNumb,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select document number',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items: _documentNumbers
+          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+          .toList(),
+      onChanged: (v) async {
+        setState(() => _selectedDocuNumb = v);
+        if (v != null) await _fetchAndPopulateDetails(v);
+      },
+      validator: (v) => v == null ? 'Required' : null,
+    );
+  }
+
+  Widget _buildDateField(
+    String label,
+    TextEditingController controller, {
+    bool readOnly = false,
+    VoidCallback? onTap,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          readOnly: readOnly,
+          onTap: onTap,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Select date',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+            suffixIcon: readOnly
+                ? const Icon(Icons.lock, color: Colors.grey)
+                : const Icon(Icons.calendar_today, color: Colors.blue),
+          ),
+          validator: (val) =>
+              val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTextField(
+    String label,
+    TextEditingController controller, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Enter $label',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+          ),
+          validator: (val) =>
+              val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildImageUploadSection() {
+    return [
+      ...List.generate(_selectedImages.length, (i) {
+        final file = _selectedImages[i];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: file != null ? Colors.green : Colors.grey[300]!,
+              width: 1.5,
+            ),
+          ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-                              // ─── Process Section ──────────────────────────────────────────────
-                Container(
-                  margin: const EdgeInsets.only(top: 20, bottom: SparshSpacing.md),
-                  padding: const EdgeInsets.all(SparshSpacing.md),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                    boxShadow: SparshShadows.sm,
-                  ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Process',
-                      style: SparshTypography.heading5.copyWith(color: SparshTheme.textPrimary),
+              Row(
+                children: [
+                  Text(
+                    'Document ${i + 1}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
                     ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    if (_processTypeError != null)
-                      Text(_processTypeError!, style: const TextStyle(color: Colors.red)),
-                    _isLoadingProcessTypes
-                      ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                      : DropdownButtonFormField<String>(
-                          value: _processItem,
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: SparshTheme.cardBackground,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                              borderSide: BorderSide.none,
+                  ),
+                  const Spacer(),
+                  if (file != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'Uploaded',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
                             ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.md, vertical: SparshSpacing.sm),
-                            isCollapsed: true,
                           ),
-                          isExpanded: true,
-                          items: _processdropdownItems
-                              .map((item) => DropdownMenuItem(
-                                    value: item,
-                                    child: Text(item, style: const TextStyle(fontSize: 14)),
-                                  ))
-                              .toList(),
-                          onChanged: (val) async {
-                            setState(() {
-                              _processItem = val;
-                            });
-                            if (val == 'Update') await _fetchDocumentNumbers();
-                          },
-                          validator: (v) => v == null || v == 'Select' ? 'Required' : null,
-                        ),
-                    if (_processItem == 'Update') ...[
-                      const SizedBox(height: 8.0),
-                      _loadingDocs
-                        ? const Center(child: CircularProgressIndicator())
-                        : DropdownButtonFormField<String>(
-                            value: _selectedDocuNumb,
-                            decoration: const InputDecoration(labelText: 'Document Number'),
-                            items: _documentNumbers
-                                .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-                                .toList(),
-                            onChanged: (v) async {
-                              setState(() => _selectedDocuNumb = v);
-                              if (v != null) await _fetchAndPopulateDetails(v);
-                            },
-                            validator: (v) => v == null ? 'Required' : null,
-                          ),
-                    ],
-                  ],
-                ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
-
-                              // ─── Date Section ─────────────────────────────────────────────────
-                Container(
-                  margin: const EdgeInsets.only(top: 20, bottom: SparshSpacing.md),
-                  padding: const EdgeInsets.all(SparshSpacing.md),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                    boxShadow: SparshShadows.sm,
-                  ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Submission Date',
-                      style: SparshTypography.heading5.copyWith(color: SparshTheme.textPrimary),
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    TextFormField(
-                      controller: _submissionDateController,
-                      readOnly: true,
-                      enabled: false,
-                      decoration: InputDecoration(
-                        hintText: 'Submission Date',
-                        filled: true,
-                        fillColor: SparshTheme.cardBackground,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.md, vertical: SparshSpacing.sm),
-                        isCollapsed: true,
-                        suffixIcon: const Icon(Icons.lock, color: Colors.grey),
-                      ),
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
-                    ),
-                    const SizedBox(height: SparshSpacing.md),
-                    Text(
-                      'Report Date',
-                      style: SparshTypography.heading5.copyWith(color: SparshTheme.textPrimary),
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    TextFormField(
-                      controller: _reportDateController,
-                      readOnly: true,
-                      onTap: _pickReportDate,
-                      decoration: InputDecoration(
-                        hintText: 'Select Report Date',
-                        filled: true,
-                        fillColor: SparshTheme.cardBackground,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.md, vertical: SparshSpacing.sm),
-                        isCollapsed: true,
-                        suffixIcon: const Icon(Icons.calendar_today, size: SparshIconSize.md),
-                      ),
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
-                    ),
-                  ],
-                ),
-              ),
-
-                              // ─── NEW: Activity Details Section ───────────────────────────────
-                Container(
-                  margin: const EdgeInsets.only(top: 20, bottom: SparshSpacing.md),
-                  padding: const EdgeInsets.all(SparshSpacing.md),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                    boxShadow: SparshShadows.sm,
-                  ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Activity Details',
-                      style: SparshTypography.heading5.copyWith(color: SparshTheme.textPrimary),
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    TextFormField(
-                      controller: _activityDetails1Controller,
-                      maxLines: 3,
-                      decoration: _multilineDecoration.copyWith(
-                        hintText: 'Activity Details 1',
-                      ),
-                      validator: (v) =>
-                      (v == null || v.isEmpty) ? 'Required' : null,
-                    ),
-                    const SizedBox(height: SparshSpacing.md),
-                    Text(
-                      'Activity Details 2',
-                      style: SparshTypography.heading5.copyWith(color: SparshTheme.textPrimary),
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    TextFormField(
-                      controller: _activityDetails2Controller,
-                      maxLines: 3,
-                      decoration: _multilineDecoration.copyWith(
-                        hintText: 'Activity Details 2',
-                      ),
-                    ),
-                    const SizedBox(height: SparshSpacing.md),
-                    Text(
-                      'Activity Details 3',
-                      style: SparshTypography.heading5.copyWith(color: SparshTheme.textPrimary),
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    TextFormField(
-                      controller: _activityDetails3Controller,
-                      maxLines: 3,
-                      decoration: _multilineDecoration.copyWith(
-                        hintText: 'Activity Details 3',
-                      ),
-                    ),
-                    const SizedBox(height: SparshSpacing.md),
-                    Text(
-                      'Other Points',
-                      style: SparshTypography.heading5.copyWith(color: SparshTheme.textPrimary),
-                    ),
-                    const SizedBox(height: SparshSpacing.sm),
-                    TextFormField(
-                      controller: _otherPointsController,
-                      maxLines: 3,
-                      decoration: _multilineDecoration.copyWith(
-                        hintText: 'Other Points',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ─── Upload Supporting Documents ──────────────────────────────────
-              
-
-              // ─── Submit Button Card ─────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                  boxShadow: SparshShadows.sm,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () => _onSubmit(exitAfter: false),
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('Submit'),
-                      style: ElevatedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        backgroundColor: SparshTheme.primaryBlueAccent,
-                        elevation: 3.0,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(SparshBorderRadius.sm)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        textStyle: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    const SizedBox(height: SparshSpacing.md),
-                    OutlinedButton.icon(
-                      onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const DsrEntry())),
-                      icon: const Icon(Icons.arrow_back),
-                      label: const Text('Back to DSR Entry'),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _pickImage(i),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: SparshTheme.primaryBlueAccent,
-                        backgroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(SparshBorderRadius.sm),
-                            side: const BorderSide(color: SparshTheme.primaryBlueAccent)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        textStyle: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                        elevation: 1.0,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        side: const BorderSide(color: Colors.blue),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            file != null ? Icons.refresh : Icons.upload_file,
+                            size: 18,
+                            color: Colors.blue,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            file != null ? 'Replace' : 'Upload',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                  ),
+                  if (file != null) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _showImageDialog(file),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          side: const BorderSide(color: Colors.green),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.visibility, size: 18, color: Colors.green),
+                            SizedBox(width: 8),
+                            Text(
+                              'View',
+                              style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedImages.removeAt(i);
+                        });
+                      },
+                      icon: const Icon(Icons.remove_circle, color: Colors.red),
+                    ),
                   ],
+                ],
+              ),
+            ],
+          ),
+        );
+      }),
+      if (_selectedImages.length < 3)
+        Center(
+          child: TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _selectedImages.add(null);
+              });
+            },
+            icon: const Icon(Icons.add_photo_alternate, color: Colors.blue),
+            label: const Text(
+              'Add More Image',
+              style: TextStyle(color: Colors.blue),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Work From Home Help',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
                 ),
               ),
-
-              const SizedBox(height: 30),
+              const SizedBox(height: 16),
+              Text(
+                'Fill in all the required fields to record your work from home details. '
+                'Make sure to select the correct process type (Add/Update) and provide accurate information.',
+                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'Got it',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),

@@ -4,9 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:learning2/core/theme/app_theme.dart';
 import 'dsr_entry.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_exception_entry.dart';
@@ -164,7 +162,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
       _selectedDocuNumb = null;
     });
     final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=50',
+      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=50',
     );
     try {
       final resp = await http.get(uri);
@@ -196,7 +194,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
 
   Future<void> _fetchAndPopulateDetails(String docuNumb) async {
     final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
+      'http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
     );
     try {
       final resp = await http.get(uri);
@@ -205,9 +203,9 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
         setState(() {
           _purchaserNameController.text = data['Purchaser'] ?? '';
           _submissionDateController.text =
-              data['SubmissionDate']?.toString()?.substring(0, 10) ?? '';
+              data['SubmissionDate']?.toString().substring(0, 10) ?? '';
           _reportDateController.text =
-              data['ReportDate']?.toString()?.substring(0, 10) ?? '';
+              data['ReportDate']?.toString().substring(0, 10) ?? '';
         });
 
         final config = activityFieldConfig[_selectedActivityType] ?? [];
@@ -331,6 +329,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
       'ReportDate': _reportDateController.text,
       'Purchaser': _purchaserNameController.text,
       'CreateId': '2948',
+      'UpdateId': '2948',
       'DsrParam': '50',
       'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
       'ProcessType': _processItem == 'Update' ? 'U' : 'A',
@@ -357,8 +356,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
 
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/' +
-            (_processItem == 'Update' ? 'update' : ''),
+        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}',
       );
 
       final resp =
@@ -431,7 +429,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
   Future<String?> _fetchDocumentNumberFromServer() async {
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/generateDocumentNumber',
+        'http://10.4.64.23/api/DsrTry/generateDocumentNumber',
       );
       final response = await http.post(
         url,
@@ -522,7 +520,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
                       children: [
                         Container(
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: Colors.blue,
                             shape: BoxShape.circle,
                           ),
@@ -1020,7 +1018,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
                         const SizedBox(width: 8),
                         Text(
                           file != null ? 'Replace' : 'Upload',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.blue,
                             fontWeight: FontWeight.w500,
                           ),

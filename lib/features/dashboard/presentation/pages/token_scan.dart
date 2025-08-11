@@ -1,10 +1,6 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:learning2/data/sources/token_database.dart';
 import 'All_Tokens.dart';
-import 'package:learning2/core/constants/fonts.dart';
 
 class TokenScanPage extends StatefulWidget {
   const TokenScanPage({super.key});
@@ -36,7 +32,7 @@ class _TokenScanPageState extends State<TokenScanPage>
   final Set<String> _validatedTokens = {};
   final List<TokenCard> _attemptedCards = [];
   String? _apiAutoPin;
-  bool _showMaxAttemptsError = false;
+  final bool _showMaxAttemptsError = false;
   Map<String, dynamic> _tokenDetails = {};
 
   late AnimationController _animationController;
@@ -445,7 +441,7 @@ class _TokenScanPageState extends State<TokenScanPage>
                               child: Container(
                                 width: 30,
                                 height: 30,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   border: Border(
                                     top: BorderSide(
                                       color: Colors.white,
@@ -465,7 +461,7 @@ class _TokenScanPageState extends State<TokenScanPage>
                               child: Container(
                                 width: 30,
                                 height: 30,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   border: Border(
                                     top: BorderSide(
                                       color: Colors.white,
@@ -485,7 +481,7 @@ class _TokenScanPageState extends State<TokenScanPage>
                               child: Container(
                                 width: 30,
                                 height: 30,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   border: Border(
                                     bottom: BorderSide(
                                       color: Colors.white,
@@ -505,7 +501,7 @@ class _TokenScanPageState extends State<TokenScanPage>
                               child: Container(
                                 width: 30,
                                 height: 30,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   border: Border(
                                     bottom: BorderSide(
                                       color: Colors.white,
@@ -530,7 +526,7 @@ class _TokenScanPageState extends State<TokenScanPage>
                                   right: 0,
                                   child: Container(
                                     height: 4,
-                                    decoration: BoxDecoration(
+                                    decoration: const BoxDecoration(
                                       gradient: LinearGradient(
                                         colors: [
                                           Colors.transparent,
@@ -1016,7 +1012,7 @@ class _TokenCardState extends State<TokenCard> with TickerProviderStateMixin {
               );
             }
             return const SizedBox.shrink();
-          }).toList(),
+          }),
         ],
       ),
     );

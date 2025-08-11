@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:learning2/features/authentication/presentation/pages/login_screen.dart';
-import 'package:learning2/core/constants/fonts.dart';
 
 import '../../../../core/theme/app_theme.dart';
 

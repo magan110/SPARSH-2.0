@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class DsrExceptionEntryPage extends StatefulWidget {
-  const DsrExceptionEntryPage({Key? key}) : super(key: key);
+  const DsrExceptionEntryPage({super.key});
 
   @override
   State<DsrExceptionEntryPage> createState() => _DsrExceptionEntryPageState();
@@ -56,7 +56,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
   }
 
   Future<void> fetchApprovalAuthority() async {
-    final response = await http.get(Uri.parse('http://192.168.36.25/api/DsrTry/getApprovalAuthority?loginId=$loginId'));
+    final response = await http.get(Uri.parse('http://10.4.64.23/api/DsrTry/getApprovalAuthority?loginId=$loginId'));
     print('getApprovalAuthority: ${response.statusCode} ${response.body}');
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -72,7 +72,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
   Future<void> fetchExceptionMetadata() async {
     setState(() { isLoadingMetadata = true; metadataError = null; });
     try {
-      final response = await http.get(Uri.parse('http://192.168.36.25/api/DsrTry/getExceptionMetadata?procType=N'));
+      final response = await http.get(Uri.parse('http://10.4.64.23/api/DsrTry/getExceptionMetadata?procType=N'));
       print('getExceptionMetadata: ${response.statusCode} ${response.body}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -96,7 +96,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
   }
 
   Future<void> fetchEmployee() async {
-    final response = await http.get(Uri.parse('http://192.168.36.25/api/DsrTry/getEmployees?procType=N&loginId=$loginId'));
+    final response = await http.get(Uri.parse('http://10.4.64.23/api/DsrTry/getEmployees?procType=N&loginId=$loginId'));
     print('getEmployees: ${response.statusCode} ${response.body}');
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -120,7 +120,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
   }
 
   Future<void> fetchExceptionHistory() async {
-    final response = await http.get(Uri.parse('http://192.168.36.25/api/DsrTry/getExceptionHistory?procType=N&loginId=$loginId'));
+    final response = await http.get(Uri.parse('http://10.4.64.23/api/DsrTry/getExceptionHistory?procType=N&loginId=$loginId'));
     print('getExceptionHistory: ${response.statusCode} ${response.body}');
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -158,7 +158,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
     };
     print('submitExceptions payload: ${jsonEncode(payload)}');
     final response = await http.post(
-      Uri.parse('http://192.168.36.25/api/DsrTry/submitExceptions'),
+      Uri.parse('http://10.4.64.23/api/DsrTry/submitExceptions'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(payload),
     );
@@ -213,7 +213,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
                     child: Text('Error: $errorMsg', style: const TextStyle(color: Colors.red)),
                   )
                 : SingleChildScrollView(
-                    child: Container(
+                    child: SizedBox(
                       width: isWide ? 1500 : double.infinity,
                       child: Card(
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -231,13 +231,13 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 padding: const EdgeInsets.all(20),
-                                child: Column(
+                                child: const Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text('• Please Note Exception is valid for Late DSR Entry earlier than 3 days', style: TextStyle(fontSize: 16, color: Colors.black)),
-                                    const SizedBox(height: 4),
+                                    SizedBox(height: 4),
                                     Text('• DSR Entry is must after Exception Approval for Attendance Entry', style: TextStyle(fontSize: 16, color: Colors.black)),
-                                    const SizedBox(height: 4),
+                                    SizedBox(height: 4),
                                     Text('• Exception Validity is also 3 days after date of Exception Approval', style: TextStyle(fontSize: 16, color: Colors.black)),
                                   ],
                                 ),
@@ -282,7 +282,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('Exception Type', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    const Text('Exception Type', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                     const SizedBox(height: 6),
                                     isLoadingMetadata
                                         ? const Center(child: CircularProgressIndicator())
@@ -306,7 +306,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
                                                 },
                                               ),
                                     const SizedBox(height: 16),
-                                    Text('Employee', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    const Text('Employee', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                     const SizedBox(height: 6),
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
@@ -315,10 +315,10 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
                                         borderRadius: BorderRadius.circular(8),
                                         color: Colors.grey.shade100,
                                       ),
-                                      child: Text(employeeName ?? '', style: TextStyle(fontSize: 16)),
+                                      child: Text(employeeName ?? '', style: const TextStyle(fontSize: 16)),
                                     ),
                                     const SizedBox(height: 16),
-                                    Text('Exception Date for DSR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    const Text('Exception Date for DSR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                     const SizedBox(height: 6),
                                     TextFormField(
                                       controller: dateController,
@@ -331,7 +331,7 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
                                       ),
                                     ),
                                     const SizedBox(height: 16),
-                                    Text('Remarks', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    const Text('Remarks', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                                     const SizedBox(height: 6),
                                     TextFormField(
                                       controller: remarksController,
@@ -366,13 +366,13 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
                               ),
                               const SizedBox(height: 32),
                               // History Table
-                              Text('Exception History', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: SparshTheme.primaryBlueAccent)),
+                              const Text('Exception History', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: SparshTheme.primaryBlueAccent)),
                               const SizedBox(height: 16),
                               SingleChildScrollView(
                                 scrollDirection: Axis.horizontal,
                                 child: DataTable(
-                                  headingRowColor: MaterialStateProperty.all(Colors.grey.shade200),
-                                  dataRowColor: MaterialStateProperty.all(Colors.white),
+                                  headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
+                                  dataRowColor: WidgetStateProperty.all(Colors.white),
                                   columnSpacing: 24,
                                   horizontalMargin: 12,
                                   dividerThickness: 1.2,

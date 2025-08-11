@@ -14,7 +14,6 @@ import 'on_leave.dart';
 import 'phone_call_with_builder.dart';
 import 'phone_call_with_unregisterd_purchaser.dart';
 import 'work_from_home.dart';
-import 'package:learning2/features/dashboard/presentation/pages/home_screen.dart';
 
 class DsrEntry extends StatefulWidget {
   const DsrEntry({super.key});
@@ -258,8 +257,8 @@ class _DsrEntryState extends State<DsrEntry> with TickerProviderStateMixin {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [SparshTheme.primaryBlueAccent, const Color(0xFF1976D2)],
+                gradient: const LinearGradient(
+                  colors: [SparshTheme.primaryBlueAccent, Color(0xFF1976D2)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -293,7 +292,7 @@ class _DsrEntryState extends State<DsrEntry> with TickerProviderStateMixin {
                             color: Colors.white, size: 28),
                       ),
                       const SizedBox(width: 12),
-                      Text('Instructions',
+                      const Text('Instructions',
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -338,8 +337,8 @@ class _DsrEntryState extends State<DsrEntry> with TickerProviderStateMixin {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8, bottom: 16),
+                    const Padding(
+                      padding: EdgeInsets.only(left: 8, bottom: 16),
                       child: Text('Activity Type',
                           style: TextStyle(
                             fontSize: 18,

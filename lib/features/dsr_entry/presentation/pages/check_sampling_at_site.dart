@@ -5,13 +5,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
 
 class ApiConstants {
-  static const String baseUrl = 'http://192.168.36.25/api';
+  static const String baseUrl = 'http://10.4.64.23/api';
   static const String getProcessTypes = '/DsrTry/getProcessTypes';
   static const String getProductOptions = '/DsrTry/getProductOptions';
   static const String getQualityOptions = '/DsrTry/getQualityOptions';
@@ -205,7 +204,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
       _selectedDocuNumb = null;
     });
     final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=52',
+      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=52',
     );
     try {
       final resp = await http.get(uri);
@@ -237,7 +236,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
 
   Future<void> _fetchAndPopulateDetails(String docuNumb) async {
     final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
+      'http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
     );
     try {
       final resp = await http.get(uri);
@@ -263,9 +262,9 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
         }
         setState(() {
           _submissionDateController.text =
-              data['SubmissionDate']?.toString()?.substring(0, 10) ?? '';
+              data['SubmissionDate']?.toString().substring(0, 10) ?? '';
           _reportDateController.text =
-              data['ReportDate']?.toString()?.substring(0, 10) ?? '';
+              data['ReportDate']?.toString().substring(0, 10) ?? '';
         });
       }
     } catch (_) {}
@@ -277,7 +276,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
     });
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/getProductOptions',
+        'http://10.4.64.23/api/DsrTry/getProductOptions',
       );
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -310,7 +309,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
     });
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/getQualityOptions',
+        'http://10.4.64.23/api/DsrTry/getQualityOptions',
       );
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -342,7 +341,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
       _isLoadingStatusOptions = true;
     });
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getStatusOptions');
+      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getStatusOptions');
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -482,6 +481,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
       'SubmissionDate': _submissionDateController.text,
       'ReportDate': _reportDateController.text,
       'CreateId': '2948',
+      'UpdateId': '2948',
       'DsrParam': '52',
       'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
       'ProcessType': _processItem == 'Update' ? 'U' : 'A',
@@ -516,8 +516,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
 
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/' +
-            (_processItem == 'Update' ? 'update' : ''),
+        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}',
       );
 
       final resp =
@@ -592,7 +591,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
   Future<String?> _fetchDocumentNumberFromServer() async {
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/generateDocumentNumber',
+        'http://10.4.64.23/api/DsrTry/generateDocumentNumber',
       );
       final response = await http.post(
         url,
@@ -683,7 +682,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
                       children: [
                         Container(
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: Colors.blue,
                             shape: BoxShape.circle,
                           ),
@@ -1283,7 +1282,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
                         const SizedBox(width: 8),
                         Text(
                           file != null ? 'Replace' : 'Upload',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.blue,
                             fontWeight: FontWeight.w500,
                           ),

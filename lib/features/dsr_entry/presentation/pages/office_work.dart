@@ -4,55 +4,79 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
 
 class OfficeWork extends StatefulWidget {
   const OfficeWork({super.key});
+
   @override
   State<OfficeWork> createState() => _OfficeWorkState();
 }
 
-class _OfficeWorkState extends State<OfficeWork> {
+class _OfficeWorkState extends State<OfficeWork>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+  
   final _formKey = GlobalKey<FormState>();
-
   final TextEditingController _submissionDateController = TextEditingController();
-  final TextEditingController _reportDateController     = TextEditingController();
-
+  final TextEditingController _reportDateController = TextEditingController();
+  
   // Add/Update process type state
   String? _processItem = 'Select';
   List<String> _processdropdownItems = ['Select'];
   bool _isLoadingProcessTypes = true;
   String? _processTypeError;
-
+  
   // Document-number dropdown state
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
-
+  
   // Dynamic field definitions
   List<Map<String, dynamic>> _fields = [];
   bool _isLoading = true;
-
   List<File?> _selectedImages = [null];
-
+  
   final _documentNumberController = TextEditingController();
   String? _documentNumber;
-
   Position? _currentPosition;
 
   @override
   void initState() {
     super.initState();
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
+    _fadeController.forward();
+    
     _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
     _setSubmissionDateToToday();
     _initializeFields();
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _submissionDateController.dispose();
+    _reportDateController.dispose();
+    for (final field in _fields) {
+      if (field['type'] == 'text' || field['type'] == 'number') {
+        field['controller'].dispose();
+      }
+    }
+    _documentNumberController.dispose();
+    super.dispose();
   }
 
   Future<void> _initGeolocation() async {
@@ -78,7 +102,6 @@ class _OfficeWorkState extends State<OfficeWork> {
     }
   }
 
-
   // Load document number when screen initializes
   Future<void> _loadInitialDocumentNumber() async {
     final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(DocumentNumberKeys.officeWork);
@@ -102,13 +125,6 @@ class _OfficeWorkState extends State<OfficeWork> {
       setState(() {
         _fields = [
           {
-            'label': 'Process Type',
-            'type': 'dropdown',
-            'items': processTypes,
-            'value': processTypes.isNotEmpty ? processTypes[0] : 'Select',
-            'key': 'ProcessType',
-          },
-          {
             'label': 'Work Related To',
             'controller': TextEditingController(),
             'type': 'text',
@@ -126,16 +142,9 @@ class _OfficeWorkState extends State<OfficeWork> {
       });
     } catch (e) {
       print('Error fetching process types: $e');
-      // Fallback to default process types
+      // Fallback to default fields
       setState(() {
         _fields = [
-          {
-            'label': 'Process Type',
-            'type': 'dropdown',
-            'items': ['Select', 'Add', 'Update'],
-            'value': 'Select',
-            'key': 'ProcessType',
-          },
           {
             'label': 'Work Related To',
             'controller': TextEditingController(),
@@ -158,7 +167,7 @@ class _OfficeWorkState extends State<OfficeWork> {
   Future<List<String>> _fetchProcessTypes() async {
     setState(() { _isLoadingProcessTypes = true; _processTypeError = null; });
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getProcessTypes');
+      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getProcessTypes');
       final response = await http.get(url);
       print('ProcessTypes API status:  [33m${response.statusCode} [0m');
       print('ProcessTypes API body: ${response.body}');
@@ -221,7 +230,7 @@ class _OfficeWorkState extends State<OfficeWork> {
       _selectedDocuNumb = null;
     });
     final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=53' // Use correct param for this activity
+      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=53' // Use correct param for this activity
     );
     try {
       final resp = await http.get(uri);
@@ -249,16 +258,14 @@ class _OfficeWorkState extends State<OfficeWork> {
 
   // Fetch details for a document number and populate fields
   Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse('http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
+    final uri = Uri.parse('http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
     try {
       final resp = await http.get(uri);
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         setState(() {
           for (final field in _fields) {
-            if (field['type'] == 'dropdown') {
-              field['value'] = data[field['key']] ?? 'Select';
-            } else if (field['type'] == 'text' || field['type'] == 'number') {
+            if (field['type'] == 'text' || field['type'] == 'number') {
               field['controller'].text = data[field['key']] ?? '';
             }
           }
@@ -273,22 +280,9 @@ class _OfficeWorkState extends State<OfficeWork> {
     } catch (_) {}
   }
 
-  @override
-  void dispose() {
-    _submissionDateController.dispose();
-    _reportDateController.dispose();
-    for (final field in _fields) {
-      if (field['type'] == 'text' || field['type'] == 'number') {
-        field['controller'].dispose();
-      }
-    }
-    _documentNumberController.dispose();
-    super.dispose();
-  }
-
   Future<String?> _fetchDocumentNumberFromServer() async {
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/generateDocumentNumber');
+      final url = Uri.parse('http://10.4.64.23/api/DsrTry/generateDocumentNumber');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -389,28 +383,33 @@ class _OfficeWorkState extends State<OfficeWork> {
     showDialog(
       context: context,
       builder: (_) => Dialog(
-        child: Image.file(imageFile, fit: BoxFit.contain),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.8,
+          height: MediaQuery.of(context).size.height * 0.6,
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              fit: BoxFit.contain,
+              image: FileImage(imageFile),
+            ),
+          ),
+        ),
       ),
     );
   }
 
   void _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
-
     if (_currentPosition == null) {
       await _initGeolocation();
     }
-
+    
     final dsrData = <String, dynamic>{
       'ActivityType': 'Office Work',
       'SubmissionDate': _submissionDateController.text,
       'ReportDate': _reportDateController.text,
       ...{
         for (final field in _fields)
-          if (field['type'] == 'dropdown')
-            field['key'] as String: field['value']
-          else
-            field['key'] as String: field['controller'].text
+          field['key'] as String: field['controller'].text
       },
       'Images': _selectedImages.map((file) => file?.path).toList(),
       'latitude': _currentPosition?.latitude.toString() ?? '',
@@ -418,11 +417,13 @@ class _OfficeWorkState extends State<OfficeWork> {
       'DsrParam': '53',
       'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
       'ProcessType': _processItem == 'Update' ? 'U' : 'A',
+      'CreateId': '2948',
+      'UpdateId': '2948',
     };
-
+    
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/' + (_processItem == 'Update' ? 'update' : '')
+        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}'
       );
       final resp = _processItem == 'Update'
           ? await http.put(
@@ -435,10 +436,9 @@ class _OfficeWorkState extends State<OfficeWork> {
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode(dsrData),
             );
-
       final success = (_processItem == 'Update' && resp.statusCode == 204) ||
                       (_processItem != 'Update' && resp.statusCode == 201);
-
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(success
@@ -450,6 +450,7 @@ class _OfficeWorkState extends State<OfficeWork> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      
       if (success) {
         if (exitAfter) {
           Navigator.of(context).pop();
@@ -473,15 +474,14 @@ class _OfficeWorkState extends State<OfficeWork> {
       _submissionDateController.clear();
       _reportDateController.clear();
       for (final field in _fields) {
-        if (field['type'] == 'dropdown') {
-          field['value'] = field['items'][0];
-        } else if (field['type'] == 'text' || field['type'] == 'number') {
+        if (field['type'] == 'text' || field['type'] == 'number') {
           field['controller'].clear();
         }
       }
       _selectedImages = [null];
     });
-    _formKey.currentState!.reset();
+    _formKey.currentState?.reset();
+    _setSubmissionDateToToday();
   }
 
   // Add a method to reset the form (clear document number)
@@ -489,14 +489,14 @@ class _OfficeWorkState extends State<OfficeWork> {
     setState(() {
       _documentNumber = null;
       _documentNumberController.clear();
-      _fields[0]['value'] = 'Select';
+      _processItem = 'Select';
       // Clear other form fields as needed
     });
     DocumentNumberStorage.clearDocumentNumber(DocumentNumberKeys.officeWork); // Clear from persistent storage
   }
 
   Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    final url = Uri.parse('http://192.168.36.25/api/DsrTry');
+    final url = Uri.parse('http://10.4.64.23/api/DsrTry');
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
@@ -515,17 +515,17 @@ class _OfficeWorkState extends State<OfficeWork> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        backgroundColor: SparshTheme.scaffoldBackground,
+        backgroundColor: Colors.white,
         appBar: AppBar(
           leading: IconButton(
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const DsrEntry()),
             ),
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
           ),
           title: const Text('Office Work', style: TextStyle(color: Colors.white)),
-          backgroundColor: SparshTheme.primaryBlue,
+          backgroundColor: Colors.blue,
           elevation: 0,
         ),
         body: const Center(
@@ -533,245 +533,628 @@ class _OfficeWorkState extends State<OfficeWork> {
         ),
       );
     }
-
+    
     return Scaffold(
-      backgroundColor: SparshTheme.scaffoldBackground,
+      backgroundColor: Colors.white,
       appBar: AppBar(
+        backgroundColor: Colors.blue,
+        elevation: 0,
+        centerTitle: true,
+        title: const Text(
+          'Office Work',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
         leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const DsrEntry()),
           ),
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
         ),
-        title: const Text('Office Work', style: TextStyle(color: Colors.white)),
-        backgroundColor: SparshTheme.primaryBlue,
-        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            onPressed: () => _showHelpDialog(),
+          ),
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(SparshSpacing.md),
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            children: [
-              // Render dynamic fields
-              // Only handle the Process Type dropdown and Document Number here
-              _buildLabel(_fields[0]['label']),
-              if (_processTypeError != null)
-                Text(_processTypeError!, style: const TextStyle(color: Colors.red)),
-              _isLoadingProcessTypes
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : DropdownButtonFormField<String>(
-                    value: _processItem,
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: SparshTheme.cardBackground,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.md), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.sm, vertical: SparshSpacing.sm),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header Section
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blue[100]!),
                     ),
-                    items: _processdropdownItems.map((it) => DropdownMenuItem(value: it, child: Text(it))).toList(),
-                    onChanged: (val) async {
-                      setState(() {
-                        _processItem = val;
-                        _fields[0]['value'] = val;
-                      });
-                      if (val == 'Update') await _fetchDocumentNumbers();
-                    },
-                    validator: (v) => v == null || v == 'Select' ? 'Required' : null,
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: const BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.work,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Office Work',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Record details of your office work activities',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
                   ),
-              if (_processItem == 'Update') ...[
-                const SizedBox(height: 8.0),
-                _loadingDocs
-                  ? const Center(child: CircularProgressIndicator())
-                  : DropdownButtonFormField<String>(
-                      value: _selectedDocuNumb,
-                      decoration: const InputDecoration(labelText: 'Document Number'),
-                      items: _documentNumbers
-                          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-                          .toList(),
-                      onChanged: (v) async {
-                        setState(() => _selectedDocuNumb = v);
-                        if (v != null) await _fetchAndPopulateDetails(v);
-                      },
-                      validator: (v) => v == null ? 'Required' : null,
-                    ),
-              ],
-              if (_fields[0]['value'] == "Update")
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: TextFormField(
-                    controller: _documentNumberController,
+                  const SizedBox(height: 32),
+                  // Process Type Section
+                  _buildSectionTitle('Process Type'),
+                  const SizedBox(height: 8),
+                  _buildProcessTypeDropdown(),
+                  const SizedBox(height: 24),
+                  // Document Number (for Update)
+                  if (_processItem == 'Update') ...[
+                    _buildSectionTitle('Document Number'),
+                    const SizedBox(height: 8),
+                    _loadingDocs
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildDocumentNumberDropdown(),
+                    const SizedBox(height: 24),
+                  ],
+                  // Date Fields Section
+                  _buildSectionTitle('Date Information'),
+                  const SizedBox(height: 8),
+                  _buildDateField(
+                    'Submission Date',
+                    _submissionDateController,
                     readOnly: true,
-                    decoration: InputDecoration(
-                      labelText: "Document Number",
-                      filled: true,
-                      fillColor: Colors.grey[200],
-                      border: const OutlineInputBorder(),
-                    ),
                   ),
-                ),
-              const SizedBox(height: SparshSpacing.sm),
-              // Render the rest of the fields (text/number)
-              for (final field in _fields.skip(1)) ...[
-                _buildLabel(field['label']),
-                _buildTextField(
-                  field['label'],
-                  controller: field['controller'],
-                  keyboardType: field['type'] == 'number' ? TextInputType.number : TextInputType.text,
-                  maxLines: field['maxLines'] ?? 1,
-                ),
-                const SizedBox(height: SparshSpacing.sm),
-              ],
-              _buildLabel('Submission Date'),
-              TextFormField(
-                controller: _submissionDateController,
-                readOnly: true,
-                enabled: false,
-                decoration: InputDecoration(
-                  hintText: 'Submission Date',
-                  filled: true,
-                  fillColor: SparshTheme.cardBackground,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                    borderSide: BorderSide.none,
+                  const SizedBox(height: 16),
+                  _buildDateField(
+                    'Report Date',
+                    _reportDateController,
+                    onTap: _pickReportDate,
                   ),
-                  suffixIcon: const Icon(Icons.lock, color: Colors.grey),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.sm, vertical: SparshSpacing.sm),
-                ),
-                validator: (val) => val == null || val.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: SparshSpacing.sm),
-              _buildLabel('Report Date'),
-              TextFormField(
-                controller: _reportDateController,
-                readOnly: true,
-                onTap: _pickReportDate,
-                decoration: InputDecoration(
-                  hintText: 'Select Report Date',
-                  filled: true,
-                  fillColor: SparshTheme.cardBackground,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                    borderSide: BorderSide.none,
-                  ),
-                  suffixIcon: const Icon(Icons.calendar_today),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.sm, vertical: SparshSpacing.sm),
-                ),
-                validator: (val) => val == null || val.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: SparshSpacing.sm),
-              _buildLabel('Upload Images'),
-              ...List.generate(_selectedImages.length, (i) {
-                final file = _selectedImages[i];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: SparshSpacing.md),
-                  padding: const EdgeInsets.all(SparshSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: SparshTheme.cardBackground,
-                    borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-                    border: Border.all(
-                      color: file != null ? SparshTheme.successGreen : SparshTheme.borderGrey,
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 24),
+                  // Work Details Section
+                  _buildSectionTitle('Work Details'),
+                  const SizedBox(height: 8),
+                  ..._buildDynamicFields(),
+                  const SizedBox(height: 24),
+                  // Image Upload Section
+                  _buildSectionTitle('Upload Images'),
+                  const SizedBox(height: 8),
+                  ..._buildImageUploadSection(),
+                  const SizedBox(height: 32),
+                  // Submit Buttons
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Document ${i + 1}',
-                            style: SparshTypography.bodyBold,
-                          ),
-                          const Spacer(),
-                          if (file != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: SparshSpacing.sm, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: SparshTheme.successGreen.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(SparshBorderRadius.xl),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.check_circle, color: SparshTheme.successGreen, size: 16),
-                                  const SizedBox(width: SparshSpacing.xs),
-                                  Text(
-                                    'Uploaded',
-                                    style: SparshTypography.labelMedium.copyWith(
-                                      color: SparshTheme.successGreen,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                        ],
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            _processItem == 'Update' ? 'Update & New' : 'Submit & New',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _pickImage(i),
-                              icon: Icon(file != null ? Icons.refresh : Icons.upload_file, size: 18),
-                              label: Text(file != null ? 'Replace' : 'Upload'),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _onSubmit(exitAfter: true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[700],
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            _processItem == 'Update' ? 'Update & Exit' : 'Submit & Exit',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
                             ),
                           ),
-                          if (file != null) ...[
-                            const SizedBox(width: SparshSpacing.sm),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _showImageDialog(file),
-                                icon: const Icon(Icons.visibility, size: 18),
-                                label: const Text('View'),
-                                style: ElevatedButton.styleFrom(backgroundColor: SparshTheme.successGreen),
-                              ),
-                            ),
-                            const SizedBox(width: SparshSpacing.sm),
-                            IconButton(
-                              onPressed: () {
-                                setState(() {
-                                  _selectedImages.removeAt(i);
-                                });
-                              },
-                              icon: const Icon(Icons.remove_circle_outline, color: SparshTheme.errorRed),
-                            ),
-                          ]
-                        ],
+                        ),
                       ),
                     ],
                   ),
-                );
-              }),
-              if (_selectedImages.length < 3)
-                Center(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _selectedImages.add(null);
-                      });
-                    },
-                    icon: const Icon(Icons.add_photo_alternate),
-                    label: const Text('Add More Image'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.black87,
+      ),
+    );
+  }
+
+  Widget _buildProcessTypeDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _processItem,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select process type',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items: _processdropdownItems
+          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+          .toList(),
+      onChanged: (val) async {
+        setState(() {
+          _processItem = val;
+        });
+        if (val == 'Update') await _fetchDocumentNumbers();
+      },
+      validator: (v) => v == null || v == 'Select'
+          ? 'Please select a Process Type'
+          : null,
+    );
+  }
+
+  Widget _buildDocumentNumberDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedDocuNumb,
+      style: const TextStyle(fontSize: 16, color: Colors.black87),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
+        hintText: 'Select document number',
+        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+      ),
+      items: _documentNumbers
+          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+          .toList(),
+      onChanged: (v) async {
+        setState(() => _selectedDocuNumb = v);
+        if (v != null) await _fetchAndPopulateDetails(v);
+      },
+      validator: (v) => v == null ? 'Required' : null,
+    );
+  }
+
+  Widget _buildDateField(
+    String label,
+    TextEditingController controller, {
+    bool readOnly = false,
+    VoidCallback? onTap,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          readOnly: readOnly,
+          onTap: onTap,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Select date',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+            suffixIcon: readOnly
+                ? const Icon(Icons.lock, color: Colors.grey)
+                : const Icon(Icons.calendar_today, color: Colors.blue),
+          ),
+          validator: (val) =>
+              val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildDynamicFields() {
+    return _fields.map((field) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildTextField(
+            field['label'],
+            field['controller'],
+            keyboardType: field['type'] == 'number' ? TextInputType.number : TextInputType.text,
+            maxLines: field['maxLines'] ?? 1,
+          ),
+          const SizedBox(height: 16),
+        ],
+      );
+    }).toList();
+  }
+
+  Widget _buildTextField(
+    String label,
+    TextEditingController controller, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.blue, width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 1),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            hintText: 'Enter $label',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+          ),
+          validator: (val) =>
+              val == null || val.isEmpty ? 'This field is required' : null,
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildImageUploadSection() {
+    return [
+      ...List.generate(_selectedImages.length, (i) {
+        final file = _selectedImages[i];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: file != null ? Colors.green : Colors.grey[300]!,
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Document ${i + 1}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
                   ),
-                ),
-              const SizedBox(height: SparshSpacing.lg),
+                  const Spacer(),
+                  if (file != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'Uploaded',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
               Row(
                 children: [
                   Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _onSubmit(exitAfter: false),
-                      child: const Text('Submit & New'),
+                    child: OutlinedButton(
+                      onPressed: () => _pickImage(i),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        side: const BorderSide(color: Colors.blue),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            file != null ? Icons.refresh : Icons.upload_file,
+                            size: 18,
+                            color: Colors.blue,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            file != null ? 'Replace' : 'Upload',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: SparshSpacing.sm),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _onSubmit(exitAfter: true),
-                      child: const Text('Submit & Exit'),
+                  if (file != null) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _showImageDialog(file),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          side: const BorderSide(color: Colors.green),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.visibility, size: 18, color: Colors.green),
+                            SizedBox(width: 8),
+                            Text(
+                              'View',
+                              style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedImages.removeAt(i);
+                        });
+                      },
+                      icon: const Icon(Icons.remove_circle, color: Colors.red),
+                    ),
+                  ],
                 ],
+              ),
+            ],
+          ),
+        );
+      }),
+      if (_selectedImages.length < 3)
+        Center(
+          child: TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _selectedImages.add(null);
+              });
+            },
+            icon: const Icon(Icons.add_photo_alternate, color: Colors.blue),
+            label: const Text(
+              'Add More Image',
+              style: TextStyle(color: Colors.blue),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Office Work Help',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Fill in all the required fields to record your office work details. '
+                'Make sure to select the correct process type (Add/Update) and provide accurate information.',
+                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'Got it',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -779,66 +1162,4 @@ class _OfficeWorkState extends State<OfficeWork> {
       ),
     );
   }
-
-  Widget _buildLabel(String text) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Text(
-      text,
-      style: SparshTypography.bodyBold.copyWith(color: SparshTheme.textPrimary),
-    ),
-  );
-
-  Widget _buildTextField(
-      String hint, {
-        TextEditingController? controller,
-        TextInputType? keyboardType,
-        int maxLines = 1,
-      }) =>
-      TextFormField(
-        controller: controller,
-        keyboardType: keyboardType,
-        maxLines: maxLines,
-        decoration: InputDecoration(
-          hintText: hint,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.md)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.sm, vertical: SparshSpacing.sm),
-        ),
-        validator: (val) => val == null || val.isEmpty ? 'Required' : null,
-      );
-
-  Widget _buildDropdownField({
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-  }) =>
-      Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(SparshBorderRadius.md),
-          border: Border.all(color: SparshTheme.borderGrey, width: 1),
-          color: SparshTheme.cardBackground,
-        ),
-        child: DropdownButton<String>(
-          isExpanded: true,
-          value: value,
-          underline: Container(),
-          items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-          onChanged: onChanged,
-        ),
-      );
-
-  Widget _buildDateField(TextEditingController controller, VoidCallback onTap, String hint) =>
-      TextFormField(
-        controller: controller,
-        readOnly: true,
-        decoration: InputDecoration(
-          hintText: hint,
-          suffixIcon: IconButton(icon: const Icon(Icons.calendar_today), onPressed: onTap),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(SparshBorderRadius.md)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: SparshSpacing.sm, vertical: SparshSpacing.sm),
-        ),
-        onTap: onTap,
-        validator: (val) => val == null || val.isEmpty ? 'Select date' : null,
-      );
 }

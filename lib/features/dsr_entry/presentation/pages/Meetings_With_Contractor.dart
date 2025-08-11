@@ -4,10 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:learning2/core/constants/fonts.dart';
-import 'package:learning2/core/theme/app_theme.dart';
 import 'package:learning2/core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
@@ -200,7 +197,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
       _selectedDocuNumb = null;
     });
     final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDocumentNumbers?dsrParam=13',
+      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=13',
     );
     try {
       final resp = await http.get(uri);
@@ -232,7 +229,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
 
   Future<void> _fetchAndPopulateDetails(String docuNumb) async {
     final uri = Uri.parse(
-      'http://192.168.36.25/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
+      'http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
     );
     try {
       final resp = await http.get(uri);
@@ -244,9 +241,9 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
         }
         setState(() {
           _submissionDateController.text =
-              data['SubmissionDate']?.toString()?.substring(0, 10) ?? '';
+              data['SubmissionDate']?.toString().substring(0, 10) ?? '';
           _reportDateController.text =
-              data['ReportDate']?.toString()?.substring(0, 10) ?? '';
+              data['ReportDate']?.toString().substring(0, 10) ?? '';
           _selectedAreaCode = data['AreaCode'] ?? 'Select';
           _selectedPurchaser = data['Purchaser'] ?? 'Select';
           _selectedPurchaserCode = data['PurchaserCode'] ?? 'Select';
@@ -257,7 +254,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
 
   Future<void> _fetchAreaCodes() async {
     try {
-      final url = Uri.parse('http://192.168.36.25/api/DsrTry/getAreaCodes');
+      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getAreaCodes');
       final response = await http.get(url).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -348,7 +345,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
 
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/getPurchaserOptions',
+        'http://10.4.64.23/api/DsrTry/getPurchaserOptions',
       );
       final response = await http.get(url);
 
@@ -372,8 +369,9 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
                   },
                 )
                 .where((item) {
-                  if (item['code']!.isEmpty || seenCodes.contains(item['code']))
+                  if (item['code']!.isEmpty || seenCodes.contains(item['code'])) {
                     return false;
+                  }
                   seenCodes.add(item['code']!);
                   return true;
                 }),
@@ -426,7 +424,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
 
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/getPurchaserCode',
+        'http://10.4.64.23/api/DsrTry/getPurchaserCode',
       ).replace(
         queryParameters: {
           'areaCode': _selectedAreaCode,
@@ -436,7 +434,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
 
       final response = await http.get(url);
 
-      if (response.body == null || response.body.trim().isEmpty) {
+      if (response.body.trim().isEmpty) {
         setState(() {
           _purchaserCodes = [
             {'code': 'Select', 'name': 'Select'},
@@ -671,6 +669,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
       'SubmissionDate': _submissionDateController.text,
       'ReportDate': _reportDateController.text,
       'CreateId': '2948',
+      'UpdateId': '2948',
       'AreaCode': _selectedAreaCode ?? '',
       'Purchaser': _selectedPurchaser ?? '',
       'PurchaserCode': _selectedPurchaserCode ?? '',
@@ -706,8 +705,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
 
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/' +
-            (_processItem == 'Update' ? 'update' : ''),
+        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}',
       );
 
       final resp =
@@ -796,7 +794,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
   Future<String?> _fetchDocumentNumberFromServer() async {
     try {
       final url = Uri.parse(
-        'http://192.168.36.25/api/DsrTry/generateDocumentNumber',
+        'http://10.4.64.23/api/DsrTry/generateDocumentNumber',
       );
       final response = await http.post(
         url,
@@ -887,7 +885,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
                       children: [
                         Container(
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: Colors.blue,
                             shape: BoxShape.circle,
                           ),
@@ -1686,7 +1684,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
                         const SizedBox(width: 8),
                         Text(
                           file != null ? 'Replace' : 'Upload',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.blue,
                             fontWeight: FontWeight.w500,
                           ),
