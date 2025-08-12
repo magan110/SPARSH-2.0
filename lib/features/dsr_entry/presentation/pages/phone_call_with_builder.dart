@@ -5,10 +5,9 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/document_number_storage.dart';
+import '../../../../core/services/dsr_api_service.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
 
@@ -29,13 +28,11 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
   Position? _currentPosition;
 
   // Dynamic data
-  final List<String> _processTypes = ['Select'];
   List<Map<String, String>> _areaCodes = [];
   List<Map<String, String>> _purchasers = [];
   List<Map<String, String>> _purchaserCodes = [];
 
   // Selected values
-  String? _selectedProcessType = 'Select';
   String? _selectedAreaCode = 'Select';
   String? _selectedPurchaser = 'Select';
   String? _selectedPurchaserCode = 'Select';
@@ -86,13 +83,11 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
   final List<String> _metWithItems = ['Select', 'Builder', 'Contractor'];
   List<File?> _selectedImages = [null];
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
   String get _selectedActivityType => "Phone Call with Builder /Stockist";
 
   // Add/Update process type state
   String? _processItem = 'Select';
   List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
-  String? _processTypeError;
 
   // Document-number dropdown state
   bool _loadingDocs = false;
@@ -175,15 +170,12 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
     );
     if (savedDocNumber != null) {
       setState(() {
-        _documentNumber = savedDocNumber;
+        // Previously stored in _documentNumber (removed as unused)
       });
     }
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _processTypeError = null;
-    });
     setState(() {
       _processdropdownItems = ['Select', 'Add', 'Update'];
       _processItem = 'Select';
@@ -364,9 +356,7 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
     });
 
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/getPurchaserOptions',
-      );
+      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getPurchaserOptions');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -389,7 +379,8 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
                   },
                 )
                 .where((item) {
-                  if (item['code']!.isEmpty || seenCodes.contains(item['code'])) {
+                  if (item['code']!.isEmpty ||
+                      seenCodes.contains(item['code'])) {
                     return false;
                   }
                   seenCodes.add(item['code']!);
@@ -441,86 +432,68 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
       _isLoadingPurchaserCodes = true;
       _selectedPurchaserCode = 'Select';
     });
-
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/getPurchaserCode',
-      ).replace(
-        queryParameters: {
-          'areaCode': _selectedAreaCode,
-          'purchaserFlag': purchaserCode,
-        },
-      );
-
-      final response = await http.get(url);
-
-      if (response.body.trim().isEmpty) {
-        setState(() {
-          _purchaserCodes = [
-            {'code': 'Select', 'name': 'Select'},
-          ];
-          _isLoadingPurchaserCodes = false;
-        });
-        return;
-      }
-
-      dynamic data;
-      try {
-        data = jsonDecode(response.body);
-      } catch (e) {
-        setState(() {
-          _purchaserCodes = [
-            {'code': 'Select', 'name': 'Select'},
-          ];
-          _isLoadingPurchaserCodes = false;
-        });
-        return;
-      }
-
-      if (data is Map &&
-          (data.containsKey('purchaserCodes') ||
-              data.containsKey('PurchaserCodes'))) {
-        final purchaserCodesList =
-            (data['purchaserCodes'] ?? data['PurchaserCodes']) as List;
-        final purchaserCodes =
-            purchaserCodesList
-                .map(
-                  (item) => {
-                    'code':
-                        (item['code'] ?? item['Code'] ?? '').toString().trim(),
-                    'name':
-                        (item['name'] ??
-                                item['Name'] ??
-                                item['code'] ??
-                                item['Code'] ??
-                                '')
-                            .toString()
-                            .trim(),
-                  },
-                )
-                .where((item) => item['code']!.isNotEmpty)
-                .toList();
-
-        if (purchaserCodes.isNotEmpty) {
-          setState(() {
-            _purchaserCodes = [
-              {'code': 'Select', 'name': 'Select'},
-              ...purchaserCodes,
-            ];
-            _isLoadingPurchaserCodes = false;
-          });
-        } else {
-          setState(() {
-            _purchaserCodes = [
-              {'code': 'Select', 'name': 'Select'},
-            ];
-            _isLoadingPurchaserCodes = false;
-          });
+      // Map displayed names back to their codes for API call
+      String resolvedAreaCode = '';
+      for (final a in _areaCodes) {
+        if (a['name'] == _selectedAreaCode || a['code'] == _selectedAreaCode) {
+          resolvedAreaCode = a['code'] ?? '';
+          break;
         }
+      }
+      String resolvedPurchaserFlag = '';
+      for (final p in _purchasers) {
+        if (p['name'] == purchaserCode || p['code'] == purchaserCode) {
+          resolvedPurchaserFlag = p['code'] ?? '';
+          break;
+        }
+      }
+      final data = await DsrApiService.getPurchaserCode(
+        resolvedAreaCode,
+        resolvedPurchaserFlag,
+      );
+      List purchaserCodesList = [];
+      if (data.containsKey('PurchaserCodes')) {
+        purchaserCodesList = data['PurchaserCodes'] as List;
+      } else if (data.containsKey('purchaserCodes')) {
+        purchaserCodesList = data['purchaserCodes'] as List;
+      }
+      final purchaserCodes =
+          purchaserCodesList
+              .where((item) => item is Map)
+              .map((item) => item as Map)
+              .map(
+                (item) => {
+                  'code':
+                      (item['code'] ?? item['Code'] ?? '').toString().trim(),
+                  'name':
+                      (item['name'] ??
+                              item['Name'] ??
+                              item['code'] ??
+                              item['Code'] ??
+                              '')
+                          .toString()
+                          .trim(),
+                },
+              )
+              .where((m) => m['code']!.isNotEmpty)
+              .toList();
+
+      if (purchaserCodes.isEmpty) {
+        setState(() {
+          _purchaserCodes = [
+            {'code': 'Select', 'name': 'Select'},
+          ];
+          _isLoadingPurchaserCodes = false;
+        });
       } else {
-        throw Exception(
-          'Invalid response format: expected Map with PurchaserCodes but got ${data.runtimeType}. Data: $data',
-        );
+        setState(() {
+          _purchaserCodes = [
+            {'code': 'Select', 'name': 'Select'},
+            ...purchaserCodes,
+          ];
+          _isLoadingPurchaserCodes = false;
+        });
       }
     } catch (e) {
       setState(() {
@@ -530,12 +503,6 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
         _isLoadingPurchaserCodes = false;
       });
     }
-  }
-
-  void _onProcessTypeChanged(String? value) {
-    setState(() {
-      _selectedProcessType = value;
-    });
   }
 
   void _onAreaCodeChanged(String? value) {
@@ -761,45 +728,7 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
     _formKey.currentState?.reset();
   }
 
-  Future<String?> _fetchDocumentNumberFromServer() async {
-    try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/generateDocumentNumber',
-      );
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(_selectedAreaCode ?? 'KKR'),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        String? documentNumber;
-        if (data is Map<String, dynamic>) {
-          documentNumber =
-              data['documentNumber'] ??
-              data['DocumentNumber'] ??
-              data['docNumber'] ??
-              data['DocNumber'];
-        } else if (data is String) {
-          documentNumber = data;
-        }
-
-        if (documentNumber != null) {
-          await DocumentNumberStorage.saveDocumentNumber(
-            DocumentNumberKeys.phoneCallBuilder,
-            documentNumber,
-          );
-        }
-
-        return documentNumber;
-      } else {
-        return null;
-      }
-    } catch (e) {
-      return null;
-    }
-  }
+  // Removed unused document number generation method (centralized elsewhere if needed)
 
   @override
   Widget build(BuildContext context) {

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:learning2/core/utils/document_number_storage.dart';
+import '../../../../core/services/dsr_api_service.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
 
@@ -28,7 +29,6 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
   // Process type dropdown state
   String? _processItem = 'Select';
   List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
-  String? _processTypeError;
 
   // Document-number dropdown state
   bool _loadingDocs = false;
@@ -87,7 +87,6 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
 
   List<File?> _selectedImages = [null];
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
   String get _selectedActivityType => "Meetings with Contractor / Stockist";
 
   @override
@@ -175,15 +174,12 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
     );
     if (savedDocNumber != null) {
       setState(() {
-        _documentNumber = savedDocNumber;
+        // previously stored in _documentNumber (removed)
       });
     }
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _processTypeError = null;
-    });
     setState(() {
       _processdropdownItems = ['Select', 'Add', 'Update'];
       _processItem = 'Select';
@@ -344,9 +340,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
     });
 
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/getPurchaserOptions',
-      );
+      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getPurchaserOptions');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -369,7 +363,8 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
                   },
                 )
                 .where((item) {
-                  if (item['code']!.isEmpty || seenCodes.contains(item['code'])) {
+                  if (item['code']!.isEmpty ||
+                      seenCodes.contains(item['code'])) {
                     return false;
                   }
                   seenCodes.add(item['code']!);
@@ -423,84 +418,66 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
     });
 
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/getPurchaserCode',
-      ).replace(
-        queryParameters: {
-          'areaCode': _selectedAreaCode,
-          'purchaserFlag': purchaserCode,
-        },
-      );
-
-      final response = await http.get(url);
-
-      if (response.body.trim().isEmpty) {
-        setState(() {
-          _purchaserCodes = [
-            {'code': 'Select', 'name': 'Select'},
-          ];
-          _isLoadingPurchaserCodes = false;
-        });
-        return;
-      }
-
-      dynamic data;
-      try {
-        data = jsonDecode(response.body);
-      } catch (e) {
-        setState(() {
-          _purchaserCodes = [
-            {'code': 'Select', 'name': 'Select'},
-          ];
-          _isLoadingPurchaserCodes = false;
-        });
-        return;
-      }
-
-      if (data is Map &&
-          (data.containsKey('purchaserCodes') ||
-              data.containsKey('PurchaserCodes'))) {
-        final purchaserCodesList =
-            (data['purchaserCodes'] ?? data['PurchaserCodes']) as List;
-        final purchaserCodes =
-            purchaserCodesList
-                .map(
-                  (item) => {
-                    'code':
-                        (item['code'] ?? item['Code'] ?? '').toString().trim(),
-                    'name':
-                        (item['name'] ??
-                                item['Name'] ??
-                                item['code'] ??
-                                item['Code'] ??
-                                '')
-                            .toString()
-                            .trim(),
-                  },
-                )
-                .where((item) => item['code']!.isNotEmpty)
-                .toList();
-
-        if (purchaserCodes.isNotEmpty) {
-          setState(() {
-            _purchaserCodes = [
-              {'code': 'Select', 'name': 'Select'},
-              ...purchaserCodes,
-            ];
-            _isLoadingPurchaserCodes = false;
-          });
-        } else {
-          setState(() {
-            _purchaserCodes = [
-              {'code': 'Select', 'name': 'Select'},
-            ];
-            _isLoadingPurchaserCodes = false;
-          });
+      // Resolve display names to actual codes
+      String resolvedAreaCode = '';
+      for (final a in _areaCodes) {
+        if (a['name'] == _selectedAreaCode || a['code'] == _selectedAreaCode) {
+          resolvedAreaCode = a['code'] ?? '';
+          break;
         }
+      }
+      String resolvedPurchaserFlag = '';
+      for (final p in _purchasers) {
+        if (p['name'] == purchaserCode || p['code'] == purchaserCode) {
+          resolvedPurchaserFlag = p['code'] ?? '';
+          break;
+        }
+      }
+      final data = await DsrApiService.getPurchaserCode(
+        resolvedAreaCode,
+        resolvedPurchaserFlag,
+      );
+      List purchaserCodesList = [];
+      if (data.containsKey('PurchaserCodes')) {
+        purchaserCodesList = data['PurchaserCodes'] as List;
+      } else if (data.containsKey('purchaserCodes')) {
+        purchaserCodesList = data['purchaserCodes'] as List;
+      }
+      final purchaserCodes =
+          purchaserCodesList
+              .where((item) => item is Map)
+              .map((item) => item as Map)
+              .map(
+                (item) => {
+                  'code':
+                      (item['code'] ?? item['Code'] ?? '').toString().trim(),
+                  'name':
+                      (item['name'] ??
+                              item['Name'] ??
+                              item['code'] ??
+                              item['Code'] ??
+                              '')
+                          .toString()
+                          .trim(),
+                },
+              )
+              .where((m) => m['code']!.isNotEmpty)
+              .toList();
+      if (purchaserCodes.isEmpty) {
+        setState(() {
+          _purchaserCodes = [
+            {'code': 'Select', 'name': 'Select'},
+          ];
+          _isLoadingPurchaserCodes = false;
+        });
       } else {
-        throw Exception(
-          'Invalid response format: expected Map with PurchaserCodes but got ${data.runtimeType}. Data: $data',
-        );
+        setState(() {
+          _purchaserCodes = [
+            {'code': 'Select', 'name': 'Select'},
+            ...purchaserCodes,
+          ];
+          _isLoadingPurchaserCodes = false;
+        });
       }
     } catch (e) {
       setState(() {
@@ -791,45 +768,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
     _formKey.currentState?.reset();
   }
 
-  Future<String?> _fetchDocumentNumberFromServer() async {
-    try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/generateDocumentNumber',
-      );
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(_selectedAreaCode ?? 'KKR'),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        String? documentNumber;
-        if (data is Map<String, dynamic>) {
-          documentNumber =
-              data['documentNumber'] ??
-              data['DocumentNumber'] ??
-              data['docNumber'] ??
-              data['DocNumber'];
-        } else if (data is String) {
-          documentNumber = data;
-        }
-
-        if (documentNumber != null) {
-          await DocumentNumberStorage.saveDocumentNumber(
-            DocumentNumberKeys.meetingsContractor,
-            documentNumber,
-          );
-        }
-
-        return documentNumber;
-      } else {
-        return null;
-      }
-    } catch (e) {
-      return null;
-    }
-  }
+  // Removed unused document number fetch helper (centralized elsewhere if needed)
 
   @override
   Widget build(BuildContext context) {

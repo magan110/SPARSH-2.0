@@ -177,18 +177,18 @@ class _LoginScreenState extends State<LoginScreen>
       context: context,
       builder:
           (context) => AlertDialog(
-        title: const Text('Error', style: TextStyle(color: Colors.red)),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Colors.blue)),
+            title: const Text('Error', style: TextStyle(color: Colors.red)),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK', style: TextStyle(color: Colors.blue)),
+              ),
+            ],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
           ),
-        ],
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-      ),
     );
   }
 
@@ -281,11 +281,11 @@ class _LoginScreenState extends State<LoginScreen>
                             ),
                           ],
                         ),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        child: Image.asset(
-                          'assets/logo.png',
-                          fit: BoxFit.fill,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
                         ),
+                        child: Image.asset('assets/logo.png', fit: BoxFit.fill),
                       ),
                       const SizedBox(height: 30),
 
@@ -293,13 +293,13 @@ class _LoginScreenState extends State<LoginScreen>
                       ShaderMask(
                         shaderCallback:
                             (bounds) => LinearGradient(
-                          colors: [
-                            Colors.white,
-                            Colors.white.withOpacity(0.8),
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ).createShader(bounds),
+                              colors: [
+                                Colors.white,
+                                Colors.white.withOpacity(0.8),
+                              ],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ).createShader(bounds),
                         child: Text(
                           'SPARSH',
                           style: Fonts.bodyBold.copyWith(
@@ -380,10 +380,10 @@ class _LoginScreenState extends State<LoginScreen>
                                       filled: true,
                                       fillColor: Colors.grey.shade50,
                                       contentPadding:
-                                      const EdgeInsets.symmetric(
-                                        vertical: 16,
-                                        horizontal: 20,
-                                      ),
+                                          const EdgeInsets.symmetric(
+                                            vertical: 16,
+                                            horizontal: 20,
+                                          ),
                                     ),
                                     validator: (value) {
                                       if (value == null || value.isEmpty) {
@@ -435,7 +435,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         onPressed: () {
                                           setState(() {
                                             _obscurePassword =
-                                            !_obscurePassword;
+                                                !_obscurePassword;
                                           });
                                         },
                                       ),
@@ -446,10 +446,10 @@ class _LoginScreenState extends State<LoginScreen>
                                       filled: true,
                                       fillColor: Colors.grey.shade50,
                                       contentPadding:
-                                      const EdgeInsets.symmetric(
-                                        vertical: 16,
-                                        horizontal: 20,
-                                      ),
+                                          const EdgeInsets.symmetric(
+                                            vertical: 16,
+                                            horizontal: 20,
+                                          ),
                                     ),
                                     validator: (value) {
                                       if (value == null || value.isEmpty) {
@@ -467,7 +467,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 // Remember me checkbox and Forgot Password
                                 Row(
                                   mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     TextButton(
                                       onPressed: () {
@@ -479,7 +479,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         ),
                                         minimumSize: Size.zero,
                                         tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
+                                            MaterialTapTargetSize.shrinkWrap,
                                       ),
                                       child: Text(
                                         'Forgot Password?',
@@ -521,20 +521,20 @@ class _LoginScreenState extends State<LoginScreen>
                                       elevation: 0,
                                     ),
                                     child:
-                                    _isLoading
-                                        ? const CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2,
-                                    )
-                                        : const Text(
-                                      'LOGIN',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 1.2,
-                                      ),
-                                    ),
+                                        _isLoading
+                                            ? const CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2,
+                                            )
+                                            : const Text(
+                                              'LOGIN',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: 1.2,
+                                              ),
+                                            ),
                                   ),
                                 ),
                               ],

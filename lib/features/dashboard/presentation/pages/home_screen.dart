@@ -703,7 +703,6 @@ class _HomeContentState extends State<HomeContent> {
   Widget _buildFeatureGrid() {
     final List<Map<String, dynamic>> features = [
       {
-        // Updated icon path to existing asset (case + naming consistency)
         'icon': 'assets/painter_kyc_tracking.png',
         'label': 'Painter KYC\nTracking',
         'fallbackIcon': Icons.track_changes_sharp,

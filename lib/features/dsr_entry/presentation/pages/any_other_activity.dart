@@ -1,11 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:learning2/core/theme/app_theme.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/services/dsr_api_service.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
@@ -22,43 +19,42 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
     with SingleTickerProviderStateMixin {
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
-  
+
   final _formKey = GlobalKey<FormState>();
-  
+
   // 1) CONTROLLERS for dropdowns and dates
   String? _processItem = 'Select';
   List<String> _processdropdownItems = ['Select'];
-  bool _isLoadingProcessTypes = true;
-  String? _processTypeError;
-  
+  // Removed specific process type loading UI usage after refactor; keeping minimal state
+
   // NEW: Document-number dropdown state
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
-  
+
   // Geolocation
   Position? _currentPosition;
-  
+
   final TextEditingController _dateController = TextEditingController();
   final TextEditingController _reportDateController = TextEditingController();
   DateTime? _selectedDate;
   DateTime? _selectedReportDate;
-  
+
   // 2) CONTROLLERS for activity text fields
   final TextEditingController _activity1Controller = TextEditingController();
   final TextEditingController _activity2Controller = TextEditingController();
   final TextEditingController _activity3Controller = TextEditingController();
-  final TextEditingController _anyOtherPointsController = TextEditingController();
-  
+  final TextEditingController _anyOtherPointsController =
+      TextEditingController();
+
   // 3) IMAGE UPLOAD state (up to 3)
   final List<int> _uploadRows = [0];
   final ImagePicker _picker = ImagePicker();
   final List<XFile?> _selectedImages = [null];
-  
+
   // 4) Document-number persistence
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
-  
+
   // 5) Config: dsrParam for this activity
   String param = '60';
 
@@ -74,7 +70,7 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
       curve: Curves.easeOut,
     );
     _fadeController.forward();
-    
+
     _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
@@ -108,7 +104,9 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
       if (permission == LocationPermission.deniedForever) {
         throw Exception('Location permissions permanently denied.');
       }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       setState(() {
         _currentPosition = pos;
       });
@@ -119,59 +117,30 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
 
   // Load any saved document number
   Future<void> _loadInitialDocumentNumber() async {
-    final saved = await DocumentNumberStorage.loadDocumentNumber(DocumentNumberKeys.anyOtherActivity);
+    final saved = await DocumentNumberStorage.loadDocumentNumber(
+      DocumentNumberKeys.anyOtherActivity,
+    );
     if (saved != null) {
       setState(() {
-        _documentNumber = saved;
         _documentNumberController.text = saved;
       });
     }
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _isLoadingProcessTypes = true;
-      _processTypeError = null;
-    });
+    // loading indicator removed in refactor
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getProcessTypes');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        List processTypesList = [];
-        if (data is List) {
-          processTypesList = data;
-        } else if (data is Map &&
-            (data['ProcessTypes'] != null || data['processTypes'] != null)) {
-          processTypesList =
-              (data['ProcessTypes'] ?? data['processTypes']) as List;
-        }
-        final processTypes = processTypesList
-            .map<String>((type) {
-              if (type is Map) {
-                return type['Description']?.toString() ??
-                    type['description']?.toString() ??
-                    '';
-              } else {
-                return type.toString();
-              }
-            })
-            .where((desc) => desc.isNotEmpty)
-            .toList();
-        setState(() {
-          _processdropdownItems = ['Select', ...processTypes];
-          _processItem = 'Select';
-          _isLoadingProcessTypes = false;
-        });
-      } else {
-        throw Exception('Failed to load process types.');
-      }
+      final list = await DsrApiService.getProcessTypes();
+      setState(() {
+        _processdropdownItems = ['Select', ...list];
+        _processItem = 'Select';
+        // loading complete
+      });
     } catch (e) {
       setState(() {
         _processdropdownItems = ['Select'];
         _processItem = 'Select';
-        _isLoadingProcessTypes = false;
-        _processTypeError = 'Failed to load process types.';
+        // loading complete with error
       });
     }
   }
@@ -183,30 +152,15 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=$param'
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers = data
-            .map((e) {
-              return (e['DocuNumb']
-                   ?? e['docuNumb']
-                   ?? e['DocumentNumber']
-                   ?? e['documentNumber']
-                   ?? '').toString();
-            })
-            .where((s) => s.isNotEmpty)
-            .toList();
-        });
-      }
-    } catch (_) {
-      // ignore errors
+      final docs = await DsrApiService.getDocumentNumbers(param);
+      setState(() {
+        _documentNumbers = docs;
+      });
     } finally {
-      setState(() { _loadingDocs = false; });
+      setState(() {
+        _loadingDocs = false;
+      });
     }
   }
 
@@ -230,25 +184,31 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
       if (pick.isBefore(threeDaysAgo)) {
         await showDialog(
           context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('Please Put Valid DSR Date.'),
-            content: const Text(
-              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.'
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DsrExceptionEntryPage()),
-                  );
-                },
-                child: const Text('Go to Exception Entry'),
+          builder:
+              (_) => AlertDialog(
+                title: const Text('Please Put Valid DSR Date.'),
+                content: const Text(
+                  'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const DsrExceptionEntryPage(),
+                        ),
+                      );
+                    },
+                    child: const Text('Go to Exception Entry'),
+                  ),
+                ],
               ),
-            ],
-          ),
         );
         return;
       }
@@ -270,18 +230,19 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
   void _showImageDialog(XFile file) {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.6,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              fit: BoxFit.contain,
-              image: FileImage(File(file.path)),
+      builder:
+          (_) => Dialog(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  fit: BoxFit.contain,
+                  image: FileImage(File(file.path)),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 
@@ -294,83 +255,56 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
     }
   }
 
-  void _removeRow() {
-    if (_uploadRows.length > 1) {
-      setState(() {
-        _uploadRows.removeLast();
-        _selectedImages.removeLast();
-      });
-    }
-  }
+  // Removed unused _removeRow (cleanup)
 
   // SUBMIT / UPDATE
   Future<void> _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
-    
-    final dsrData = {
-      'ActivityType':   'Any Other Activity',
-      'SubmissionDate': _selectedDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      'ReportDate':     _selectedReportDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      'dsrRem01':       _activity1Controller.text,
-      'dsrRem02':       _activity2Controller.text,
-      'dsrRem03':       _activity3Controller.text,
-      'dsrRem04':       _anyOtherPointsController.text,
-      'latitude':       _currentPosition?.latitude.toString() ?? '',
-      'longitude':      _currentPosition?.longitude.toString() ?? '',
-      'DsrParam':       param,
-      'DocuNumb':       _processItem == 'Update' ? _selectedDocuNumb : null,
-      'ProcessType':    _processItem == 'Update' ? 'U' : 'A',
-      'CreateId':       '2948',
-      'UpdateId':       '2948',
-    };
-    
+
+    final dto = DsrEntryDto(
+      activityType: 'Any Other Activity',
+      submissionDate: _selectedDate ?? DateTime.now(),
+      reportDate: _selectedReportDate ?? DateTime.now(),
+      createId: '2948', // TODO replace with real user id
+      dsrParam: param,
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
+      dsrRem01: _activity1Controller.text,
+      dsrRem02: _activity2Controller.text,
+      dsrRem03: _activity3Controller.text,
+      dsrRem04: _anyOtherPointsController.text,
+      latitude: _currentPosition?.latitude.toString() ?? '',
+      longitude: _currentPosition?.longitude.toString() ?? '',
+    );
+
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}'
-      );
-      final resp = _processItem == 'Update'
-          ? await http.put(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            )
-          : await http.post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            );
-      final success = (_processItem == 'Update' && resp.statusCode == 204) ||
-                      (_processItem != 'Update' && resp.statusCode == 201);
-      
-      if (!success) {
-        print('Error submitting DSR: Status ${resp.statusCode}\nBody: ${resp.body}');
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
       }
-      
+      final verb = _processItem == 'Update' ? 'Updated' : 'Submitted';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success
-              ? exitAfter
-                  ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                  : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-              : 'Error: ${resp.body}'),
-          backgroundColor: success ? Colors.green : Colors.red,
+          content: Text(
+            exitAfter
+                ? '$verb successfully. Exiting...'
+                : '$verb successfully. Ready for new entry.',
+          ),
+          backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
       );
-      
-      if (success) {
-        if (exitAfter) {
-          Navigator.of(context).pop();
-        } else {
-          _clearForm();
-        }
+      if (exitAfter) {
+        Navigator.of(context).pop();
+      } else {
+        _clearForm();
       }
     } catch (e) {
-      print('Exception during submit: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Exception: $e'),
+          content: Text('Error: $e'),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -401,15 +335,7 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
     _setSubmissionDateToToday();
   }
 
-  Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    final url = Uri.parse('http://10.4.64.23/api/DsrTry');
-    final resp = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(dsrData),
-    );
-    // existing debug prints...
-  }
+  // Legacy submit method removed (centralized in service)
 
   @override
   Widget build(BuildContext context) {
@@ -429,10 +355,11 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DsrEntry()),
-          ),
+          onPressed:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DsrEntry()),
+              ),
         ),
         actions: [
           IconButton(
@@ -572,7 +499,9 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
                             elevation: 0,
                           ),
                           child: Text(
-                            _processItem == 'Update' ? 'Update & New' : 'Submit & New',
+                            _processItem == 'Update'
+                                ? 'Update & New'
+                                : 'Submit & New',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -594,7 +523,9 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
                             elevation: 0,
                           ),
                           child: Text(
-                            _processItem == 'Update' ? 'Update & Exit' : 'Submit & Exit',
+                            _processItem == 'Update'
+                                ? 'Update & Exit'
+                                : 'Submit & Exit',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -659,18 +590,21 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
         hintText: 'Select process type',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _processdropdownItems
-          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
-          .toList(),
+      items:
+          _processdropdownItems
+              .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+              .toList(),
       onChanged: (val) async {
         setState(() {
           _processItem = val;
         });
         if (val == 'Update') await _fetchDocumentNumbers();
       },
-      validator: (v) => v == null || v == 'Select'
-          ? 'Please select a Process Type'
-          : null,
+      validator:
+          (v) =>
+              v == null || v == 'Select'
+                  ? 'Please select a Process Type'
+                  : null,
     );
   }
 
@@ -708,9 +642,10 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
         hintText: 'Select document number',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _documentNumbers
-          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-          .toList(),
+      items:
+          _documentNumbers
+              .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+              .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
       },
@@ -770,12 +705,14 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
             ),
             hintText: 'Select date',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-            suffixIcon: readOnly
-                ? const Icon(Icons.lock, color: Colors.grey)
-                : const Icon(Icons.calendar_today, color: Colors.blue),
+            suffixIcon:
+                readOnly
+                    ? const Icon(Icons.lock, color: Colors.grey)
+                    : const Icon(Icons.calendar_today, color: Colors.blue),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -834,8 +771,9 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
             hintText: 'Enter $label',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -882,7 +820,11 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 16,
+                          ),
                           SizedBox(width: 4),
                           Text(
                             'Uploaded',
@@ -945,7 +887,11 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.visibility, size: 18, color: Colors.green),
+                            Icon(
+                              Icons.visibility,
+                              size: 18,
+                              color: Colors.green,
+                            ),
                             SizedBox(width: 8),
                             Text(
                               'View',
@@ -991,54 +937,55 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
   void _showHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Any Other Activity Help',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Fill in all the required fields to record your activity details. '
-                'Make sure to select the correct process type (Add/Update) and provide accurate information.',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text(
-                    'Got it',
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Any Other Activity Help',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all the required fields to record your activity details. '
+                    'Make sure to select the correct process type (Add/Update) and provide accurate information.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }

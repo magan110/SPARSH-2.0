@@ -3,10 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../../../../core/theme/app_theme.dart';
+// Removed direct http/json usage after centralizing API
+import '../../../../core/services/dsr_api_service.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
@@ -24,44 +22,42 @@ class _BtlActivitiesState extends State<BtlActivities>
   late Animation<double> _fadeAnimation;
 
   final _formKey = GlobalKey<FormState>();
-  
+
   // Geolocation
   Position? _currentPosition;
-  
+
   // Process type state
   String? _processItem = 'Select';
   List<String> _processdropdownItems = ['Select'];
-  bool _isLoadingProcessTypes = true;
-  String? _processTypeError;
-  
+
   // Document-number dropdown state
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
-  
+
   // Date controllers
   final _submissionDateController = TextEditingController();
   final _reportDateController = TextEditingController();
-  
+
   // Activity type state
   String? _activityTypeItem = 'Select';
   List<String> _activityTypes = ['Select'];
   bool _isLoadingActivityTypes = true;
-  String? _activityTypeError;
-  
+  // activity type error handling simplified; no dedicated variable
+
   // Text controllers
   final _participantsController = TextEditingController();
   final _townController = TextEditingController();
   final _learningsController = TextEditingController();
-  
+
   // Image upload state
   List<File?> _selectedImages = [null];
   final _picker = ImagePicker();
-  
+
   // Document number persistence
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
-  
+  // removed unused persisted document number field
+
   // Config: dsrParam for this activity
   String param = '51';
 
@@ -77,7 +73,7 @@ class _BtlActivitiesState extends State<BtlActivities>
       curve: Curves.easeOut,
     );
     _fadeController.forward();
-    
+
     _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
@@ -111,7 +107,9 @@ class _BtlActivitiesState extends State<BtlActivities>
       if (permission == LocationPermission.deniedForever) {
         throw Exception('Location permissions permanently denied.');
       }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       setState(() {
         _currentPosition = pos;
       });
@@ -122,56 +120,26 @@ class _BtlActivitiesState extends State<BtlActivities>
 
   // Load any saved document number
   Future<void> _loadInitialDocumentNumber() async {
-    final saved = await DocumentNumberStorage.loadDocumentNumber(DocumentNumberKeys.btlActivities);
+    final saved = await DocumentNumberStorage.loadDocumentNumber(
+      DocumentNumberKeys.btlActivities,
+    );
     if (saved != null) {
       setState(() {
-        _documentNumber = saved;
-        _documentNumberController.text = saved;
+        _documentNumberController.text = saved; // retained for future use
       });
     }
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _isLoadingProcessTypes = true;
-      _processTypeError = null;
-    });
+    // loading indicator removed
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getProcessTypes');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        List processTypesList = [];
-        if (data is List) {
-          processTypesList = data;
-        } else if (data is Map && (data['ProcessTypes'] != null || data['processTypes'] != null)) {
-          processTypesList = (data['ProcessTypes'] ?? data['processTypes']) as List;
-        }
-        final processTypes = processTypesList
-            .map<String>((type) {
-              if (type is Map) {
-                return type['Description']?.toString() ?? type['description']?.toString() ?? '';
-              } else {
-                return type.toString();
-              }
-            })
-            .where((desc) => desc.isNotEmpty)
-            .toList();
-        setState(() {
-          _processdropdownItems = ['Select', ...processTypes];
-          _processItem = 'Select';
-          _isLoadingProcessTypes = false;
-        });
-      } else {
-        throw Exception('Failed to load process types.');
-      }
-    } catch (e) {
+      final list = await DsrApiService.getProcessTypes();
       setState(() {
-        _processdropdownItems = ['Select'];
+        _processdropdownItems = ['Select', ...list];
         _processItem = 'Select';
-        _isLoadingProcessTypes = false;
-        _processTypeError = 'Failed to load process types.';
       });
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -182,77 +150,56 @@ class _BtlActivitiesState extends State<BtlActivities>
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse('http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=$param');
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers = data
-            .map((e) {
-              return (e['DocuNumb']
-                   ?? e['docuNumb']
-                   ?? e['DocumentNumber']
-                   ?? e['documentNumber']
-                   ?? '').toString();
-            })
-            .where((s) => s.isNotEmpty)
-            .toList();
-        });
-      }
-    } catch (_) {
-      // ignore errors
+      final docs = await DsrApiService.getDocumentNumbers(param);
+      setState(() {
+        _documentNumbers = docs;
+      });
     } finally {
-      setState(() { _loadingDocs = false; });
+      setState(() {
+        _loadingDocs = false;
+      });
     }
   }
 
   Future<void> _fetchActivityTypes() async {
-    setState(() { _isLoadingActivityTypes = true; _activityTypeError = null; });
+    setState(() {
+      _isLoadingActivityTypes = true;
+    });
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getBtlActivityTypes');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final activityTypes = (data is List ? data : <String>[]).map((e) => e.toString()).toList();
-        setState(() {
-          _activityTypes = ['Select', ...activityTypes];
-          _isLoadingActivityTypes = false;
-        });
-      } else {
-        setState(() {
-          _activityTypes = ['Select'];
-          _isLoadingActivityTypes = false;
-          _activityTypeError = 'Failed to load activity types.';
-        });
-      }
-    } catch (e) {
+      final list = await DsrApiService.getBtlActivityTypes();
+      setState(() {
+        _activityTypes = ['Select', ...list];
+        _isLoadingActivityTypes = false;
+      });
+    } catch (_) {
       setState(() {
         _activityTypes = ['Select'];
         _isLoadingActivityTypes = false;
-        _activityTypeError = 'Failed to load activity types.';
       });
     }
   }
 
   // Fetch details for a selected document number and populate form fields
   Future<void> _fetchDocumentDetails(String docuNumb) async {
-    final url = Uri.parse('http://10.4.64.23/api/DsrTry/getDocumentDetails?docuNumb=$docuNumb');
     try {
-      final resp = await http.get(url);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
+      final data = await DsrApiService.getDocumentDetails(docuNumb);
+      if (data != null) {
         setState(() {
           _activityTypeItem = data['dsrRem01'] ?? 'Select';
           _participantsController.text = data['dsrRem02'] ?? '';
           _townController.text = data['dsrRem03'] ?? '';
           _learningsController.text = data['dsrRem04'] ?? '';
-          _submissionDateController.text = data['SubmissionDate']?.toString().substring(0, 10) ?? '';
-          _reportDateController.text = data['ReportDate']?.toString().substring(0, 10) ?? '';
+          _submissionDateController.text = (data['SubmissionDate'] ?? '')
+              .toString()
+              .substring(0, 10);
+          _reportDateController.text = (data['ReportDate'] ?? '')
+              .toString()
+              .substring(0, 10);
         });
       }
     } catch (e) {
-      print('Error fetching document details: $e');
+      debugPrint('Error fetching document details: $e');
     }
   }
 
@@ -275,25 +222,31 @@ class _BtlActivitiesState extends State<BtlActivities>
       if (pick.isBefore(threeDaysAgo)) {
         await showDialog(
           context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('Please Put Valid DSR Date.'),
-            content: const Text(
-              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception Entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DsrExceptionEntryPage()),
-                  );
-                },
-                child: const Text('Go to Exception Entry'),
+          builder:
+              (_) => AlertDialog(
+                title: const Text('Please Put Valid DSR Date.'),
+                content: const Text(
+                  'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception Entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const DsrExceptionEntryPage(),
+                        ),
+                      );
+                    },
+                    child: const Text('Go to Exception Entry'),
+                  ),
+                ],
               ),
-            ],
-          ),
         );
         return;
       }
@@ -316,100 +269,70 @@ class _BtlActivitiesState extends State<BtlActivities>
   void _showImageDialog(File imageFile) {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.6,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              fit: BoxFit.contain,
-              image: FileImage(imageFile),
+      builder:
+          (_) => Dialog(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  fit: BoxFit.contain,
+                  image: FileImage(imageFile),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 
-  void _addRow() {
-    if (_selectedImages.length < 3) {
-      setState(() {
-        _selectedImages.add(null);
-      });
-    }
-  }
-
-  void _removeRow(int idx) {
-    if (_selectedImages.length > 1) {
-      setState(() {
-        _selectedImages.removeAt(idx);
-      });
-    }
-  }
+  // add/remove row helpers removed (unused after refactor)
 
   // SUBMIT / UPDATE
   Future<void> _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
-    
-    final dsrData = {
-      'ActivityType':   'BTL Activities',
-      'SubmissionDate': _submissionDateController.text,
-      'ReportDate':     _reportDateController.text,
-      'dsrRem01':       _activityTypeItem ?? '',
-      'dsrRem02':       _participantsController.text,
-      'dsrRem03':       _townController.text,
-      'dsrRem04':       _learningsController.text,
-      'latitude':       _currentPosition?.latitude.toString() ?? '',
-      'longitude':      _currentPosition?.longitude.toString() ?? '',
-      'DsrParam':       param,
-      'DocuNumb':       _processItem == 'Update' ? _selectedDocuNumb : null,
-      'ProcessType':    _processItem == 'Update' ? 'U' : 'A',
-      'CreateId':       '2948',
-      'UpdateId':       '2948',
-    };
 
+    final dto = DsrEntryDto(
+      activityType: 'BTL Activities',
+      submissionDate: DateTime.parse(_submissionDateController.text),
+      reportDate: DateTime.parse(_reportDateController.text),
+      createId: '2948',
+      dsrParam: param,
+      docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      dsrRem01: _activityTypeItem ?? '',
+      dsrRem02: _participantsController.text,
+      dsrRem03: _townController.text,
+      dsrRem04: _learningsController.text,
+      latitude: _currentPosition?.latitude.toString() ?? '',
+      longitude: _currentPosition?.longitude.toString() ?? '',
+    );
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}'
-      );
-      final resp = _processItem == 'Update'
-          ? await http.put(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            )
-          : await http.post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            );
-      final success = (_processItem == 'Update' && resp.statusCode == 204) ||
-                      (_processItem != 'Update' && resp.statusCode == 201);
-      
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success
-              ? exitAfter
-                  ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                  : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-              : 'Error: ${resp.body}'),
-          backgroundColor: success ? Colors.green : Colors.red,
+          content: Text(
+            exitAfter
+                ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
+                : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.',
+          ),
+          backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
       );
-      
-      if (success) {
-        if (exitAfter) {
-          Navigator.of(context).pop();
-        } else {
-          _clearForm();
-        }
+      if (exitAfter) {
+        Navigator.of(context).pop();
+      } else {
+        _clearForm();
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Exception: $e'),
+          content: Text('Error: $e'),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -451,10 +374,11 @@ class _BtlActivitiesState extends State<BtlActivities>
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DsrEntry()),
-          ),
+          onPressed:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DsrEntry()),
+              ),
         ),
         actions: [
           IconButton(
@@ -557,8 +481,10 @@ class _BtlActivitiesState extends State<BtlActivities>
                     _participantsController,
                     keyboardType: TextInputType.number,
                     validator: (v) {
-                      if (v == null || v.isEmpty) return 'This field is required';
-                      if (int.tryParse(v) == null) return 'Please enter a valid number';
+                      if (v == null || v.isEmpty)
+                        return 'This field is required';
+                      if (int.tryParse(v) == null)
+                        return 'Please enter a valid number';
                       return null;
                     },
                   ),
@@ -594,7 +520,9 @@ class _BtlActivitiesState extends State<BtlActivities>
                             elevation: 0,
                           ),
                           child: Text(
-                            _processItem == 'Update' ? 'Update & New' : 'Submit & New',
+                            _processItem == 'Update'
+                                ? 'Update & New'
+                                : 'Submit & New',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -616,7 +544,9 @@ class _BtlActivitiesState extends State<BtlActivities>
                             elevation: 0,
                           ),
                           child: Text(
-                            _processItem == 'Update' ? 'Update & Exit' : 'Submit & Exit',
+                            _processItem == 'Update'
+                                ? 'Update & Exit'
+                                : 'Submit & Exit',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -681,18 +611,21 @@ class _BtlActivitiesState extends State<BtlActivities>
         hintText: 'Select process type',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _processdropdownItems
-          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
-          .toList(),
+      items:
+          _processdropdownItems
+              .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+              .toList(),
       onChanged: (val) async {
         setState(() {
           _processItem = val;
         });
         if (val == 'Update') await _fetchDocumentNumbers();
       },
-      validator: (v) => v == null || v == 'Select'
-          ? 'Please select a Process Type'
-          : null,
+      validator:
+          (v) =>
+              v == null || v == 'Select'
+                  ? 'Please select a Process Type'
+                  : null,
     );
   }
 
@@ -730,9 +663,10 @@ class _BtlActivitiesState extends State<BtlActivities>
         hintText: 'Select document number',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _documentNumbers
-          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-          .toList(),
+      items:
+          _documentNumbers
+              .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+              .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
         if (v != null) await _fetchDocumentDetails(v);
@@ -793,12 +727,14 @@ class _BtlActivitiesState extends State<BtlActivities>
             ),
             hintText: 'Select date',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-            suffixIcon: readOnly
-                ? const Icon(Icons.lock, color: Colors.grey)
-                : const Icon(Icons.calendar_today, color: Colors.blue),
+            suffixIcon:
+                readOnly
+                    ? const Icon(Icons.lock, color: Colors.grey)
+                    : const Icon(Icons.calendar_today, color: Colors.blue),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -823,33 +759,37 @@ class _BtlActivitiesState extends State<BtlActivities>
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: Colors.grey[300]!),
           ),
-          child: _isLoadingActivityTypes
-              ? const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Center(
-                    child: CircularProgressIndicator(strokeWidth: 2),
+          child:
+              _isLoadingActivityTypes
+                  ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                  : DropdownButton<String>(
+                    isExpanded: true,
+                    value: _activityTypeItem,
+                    underline: Container(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    items:
+                        _activityTypes
+                            .map(
+                              (item) => DropdownMenuItem(
+                                value: item,
+                                child: Text(item),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (val) => setState(() => _activityTypeItem = val),
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Colors.grey,
+                    ),
                   ),
-                )
-              : DropdownButton<String>(
-                  isExpanded: true,
-                  value: _activityTypeItem,
-                  underline: Container(),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
-                  ),
-                  items: _activityTypes
-                      .map((item) => DropdownMenuItem(
-                            value: item,
-                            child: Text(item),
-                          ))
-                      .toList(),
-                  onChanged: (val) => setState(() => _activityTypeItem = val),
-                  icon: const Icon(
-                    Icons.keyboard_arrow_down,
-                    color: Colors.grey,
-                  ),
-                ),
         ),
       ],
     );
@@ -909,7 +849,8 @@ class _BtlActivitiesState extends State<BtlActivities>
             hintText: 'Enter $label',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
-          validator: validator ??
+          validator:
+              validator ??
               (val) =>
                   val == null || val.isEmpty ? 'This field is required' : null,
         ),
@@ -1054,54 +995,55 @@ class _BtlActivitiesState extends State<BtlActivities>
   void _showHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'BTL Activities Help',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Fill in all the required fields to record your BTL activity details. '
-                'Make sure to select the correct process type (Add/Update) and provide accurate information.',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text(
-                    'Got it',
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'BTL Activities Help',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all the required fields to record your BTL activity details. '
+                    'Make sure to select the correct process type (Add/Update) and provide accurate information.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }
