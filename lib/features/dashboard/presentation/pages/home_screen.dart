@@ -8,6 +8,7 @@ import 'package:learning2/features/dashboard/presentation/pages/profile_screen.d
 import 'package:learning2/features/dashboard/presentation/pages/dashboard_screen.dart';
 import 'package:learning2/features/dashboard/presentation/pages/token_scan.dart';
 import 'package:learning2/features/dsr_entry/presentation/pages/dsr_entry.dart';
+import 'package:learning2/features/dashboard/presentation/pages/Dsr_Gen_Excp.dart';
 import 'accounts_statement_page.dart';
 import 'activity_summary_page.dart';
 import 'package:learning2/features/dashboard/presentation/pages/employee_dashboard_page.dart';
@@ -702,6 +703,7 @@ class _HomeContentState extends State<HomeContent> {
   Widget _buildFeatureGrid() {
     final List<Map<String, dynamic>> features = [
       {
+        // Updated icon path to existing asset (case + naming consistency)
         'icon': 'assets/painter_kyc_tracking.png',
         'label': 'Painter KYC\nTracking',
         'fallbackIcon': Icons.track_changes_sharp,
@@ -754,6 +756,11 @@ class _HomeContentState extends State<HomeContent> {
       {
         'icon': 'assets/grc_lead_entry.png',
         'label': 'GRC\nLead Entry',
+        'fallbackIcon': Icons.edit_note,
+      },
+      {
+        'icon': 'assets/approve.png',
+        'label': 'DSR Exception Request',
         'fallbackIcon': Icons.edit_note,
       },
     ];
@@ -846,6 +853,11 @@ class _HomeContentState extends State<HomeContent> {
             context,
             MaterialPageRoute(builder: (_) => const GrcLeadEntryPage()),
           );
+        } else if (label.contains('DSR Exception Request')) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const EmployeeExceptionRequest()),
+          );
         }
       },
       child: Container(
@@ -903,13 +915,11 @@ class _HomeContentState extends State<HomeContent> {
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(8.0),
-                        child: label.contains('Painter KYC\nTracking') 
-                          ? Icon(
-                              Icons.track_changes_sharp,
-                              color: featureColor,
-                              size: 32,
-                            )
-                          : _buildIconWidget(iconPath, fallbackIcon, featureColor),
+                        child: _buildIconWidget(
+                          iconPath,
+                          fallbackIcon,
+                          featureColor,
+                        ),
                       ),
                     ),
                   ),
@@ -966,7 +976,11 @@ class _HomeContentState extends State<HomeContent> {
     );
   }
 
-  Widget _buildIconWidget(String iconPath, IconData fallbackIcon, Color featureColor) {
+  Widget _buildIconWidget(
+    String iconPath,
+    IconData fallbackIcon,
+    Color featureColor,
+  ) {
     return FutureBuilder<bool>(
       future: _checkAssetExists(iconPath),
       builder: (context, snapshot) {
@@ -978,20 +992,12 @@ class _HomeContentState extends State<HomeContent> {
             height: 32,
             errorBuilder: (context, error, stackTrace) {
               debugPrint('Failed to load image: $iconPath, Error: $error');
-              return Icon(
-                fallbackIcon,
-                color: featureColor,
-                size: 32,
-              );
+              return Icon(fallbackIcon, color: featureColor, size: 32);
             },
           );
         } else {
           // Use fallback icon if asset doesn't exist or is loading
-          return Icon(
-            fallbackIcon,
-            color: featureColor,
-            size: 32,
-          );
+          return Icon(fallbackIcon, color: featureColor, size: 32);
         }
       },
     );

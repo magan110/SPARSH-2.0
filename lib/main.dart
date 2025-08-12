@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:learning2/features/dashboard/presentation/pages/Dsr_Gen_Excp.dart';
 import 'package:learning2/features/dashboard/presentation/pages/home_screen.dart';
 import 'package:learning2/data/network/firebase_api.dart';
 import 'package:learning2/features/dashboard/presentation/pages/notification_screen.dart';
@@ -46,7 +47,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'SPARSH',
       theme: SparshTheme.lightTheme,
-      home: const DsrVisitScreen(),
+      home: const HomeScreen(),
     );
   }
 }
