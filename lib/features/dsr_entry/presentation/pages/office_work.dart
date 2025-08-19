@@ -1,11 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:learning2/core/services/session_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+// Removed direct http/json usage in favor of centralized DsrApiService.
 import 'package:geolocator/geolocator.dart';
 import '../../../../core/utils/document_number_storage.dart';
+import '../../../../core/services/dsr_api_service.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
 
@@ -20,29 +21,29 @@ class _OfficeWorkState extends State<OfficeWork>
     with SingleTickerProviderStateMixin {
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
-  
+
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _submissionDateController = TextEditingController();
+  final TextEditingController _submissionDateController =
+      TextEditingController();
   final TextEditingController _reportDateController = TextEditingController();
-  
+
   // Add/Update process type state
   String? _processItem = 'Select';
-  List<String> _processdropdownItems = ['Select'];
-  bool _isLoadingProcessTypes = true;
-  String? _processTypeError;
-  
+  List<String> _processdropdownItems = const ['Select'];
+  // loading flag removed (not displayed in UI)
+
   // Document-number dropdown state
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
-  
+
   // Dynamic field definitions
   List<Map<String, dynamic>> _fields = [];
   bool _isLoading = true;
   List<File?> _selectedImages = [null];
-  
+
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
+  // removed unused stored document number
   Position? _currentPosition;
 
   @override
@@ -57,7 +58,7 @@ class _OfficeWorkState extends State<OfficeWork>
       curve: Curves.easeOut,
     );
     _fadeController.forward();
-    
+
     _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
@@ -93,7 +94,9 @@ class _OfficeWorkState extends State<OfficeWork>
       if (permission == LocationPermission.deniedForever) {
         throw Exception('Location permissions permanently denied.');
       }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       setState(() {
         _currentPosition = pos;
       });
@@ -104,12 +107,9 @@ class _OfficeWorkState extends State<OfficeWork>
 
   // Load document number when screen initializes
   Future<void> _loadInitialDocumentNumber() async {
-    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(DocumentNumberKeys.officeWork);
-    if (savedDocNumber != null) {
-      setState(() {
-        _documentNumber = savedDocNumber;
-      });
-    }
+    await DocumentNumberStorage.loadDocumentNumber(
+      DocumentNumberKeys.officeWork,
+    ); // value unused after refactor
   }
 
   void _setSubmissionDateToToday() {
@@ -120,8 +120,8 @@ class _OfficeWorkState extends State<OfficeWork>
   Future<void> _initializeFields() async {
     try {
       // Fetch process types from API
-      final processTypes = await _fetchProcessTypes();
-      
+      await _fetchProcessTypes();
+
       setState(() {
         _fields = [
           {
@@ -164,62 +164,21 @@ class _OfficeWorkState extends State<OfficeWork>
     }
   }
 
-  Future<List<String>> _fetchProcessTypes() async {
-    setState(() { _isLoadingProcessTypes = true; _processTypeError = null; });
+  Future<void> _fetchProcessTypes() async {
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getProcessTypes');
-      final response = await http.get(url);
-      print('ProcessTypes API status:  [33m${response.statusCode} [0m');
-      print('ProcessTypes API body: ${response.body}');
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        List processTypesList = [];
-        if (data is List) {
-          processTypesList = data;
-        } else if (data is Map &&
-            (data['ProcessTypes'] != null || data['processTypes'] != null)) {
-          processTypesList =
-              (data['ProcessTypes'] ?? data['processTypes']) as List;
-        }
-        final processTypes = processTypesList
-            .map<String>((type) {
-              if (type is Map) {
-                return type['Description']?.toString() ??
-                    type['description']?.toString() ??
-                    '';
-              } else {
-                return type.toString();
-              }
-            })
-            .where((desc) => desc.isNotEmpty)
-            .toList();
-        setState(() {
-          _processdropdownItems = ['Select', ...processTypes];
-          _processItem = 'Select';
-        });
-        return processTypes;
-      } else {
-        setState(() {
-          _processTypeError = 'Failed to load process types: ${response.statusCode}';
-          _processdropdownItems = ['Select'];
-          _processItem = 'Select';
-        });
-        return ['Select'];
-      }
-    } catch (e) {
+      final list = await DsrApiService.getProcessTypes();
+      if (!mounted) return;
       setState(() {
-        _processTypeError = 'Error: $e';
-        _processdropdownItems = ['Select'];
+        _processdropdownItems = ['Select', ...list];
         _processItem = 'Select';
       });
-      return ['Select'];
-    } finally {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
-        _isLoadingProcessTypes = false;
+        _processdropdownItems = ['Select', 'Add', 'Update'];
+        _processItem = 'Select';
       });
     }
-    // Fallback return in case of unexpected flow
-    return ['Select'];
   }
 
   // Fetch document numbers for Update
@@ -229,102 +188,39 @@ class _OfficeWorkState extends State<OfficeWork>
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=53' // Use correct param for this activity
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers = data
-            .map((e) {
-              return (e['DocuNumb']
-                   ?? e['docuNumb']
-                   ?? e['DocumentNumber']
-                   ?? e['documentNumber']
-                   ?? '').toString();
-            })
-            .where((s) => s.isNotEmpty)
-            .toList();
-        });
-      }
+      final docs = await DsrApiService.getDocumentNumbers('53');
+      setState(() => _documentNumbers = docs);
     } catch (_) {
-      // ignore errors
     } finally {
-      setState(() { _loadingDocs = false; });
+      if (mounted) setState(() => _loadingDocs = false);
     }
   }
 
   // Fetch details for a document number and populate fields
-  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse('http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
+  Future<void> _autofill(String docuNumb) async {
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
-        setState(() {
-          for (final field in _fields) {
-            if (field['type'] == 'text' || field['type'] == 'number') {
-              field['controller'].text = data[field['key']] ?? '';
-            }
-          }
-          if (data['SubmissionDate'] != null) {
-            _submissionDateController.text = data['SubmissionDate'].toString().substring(0, 10);
-          }
-          if (data['ReportDate'] != null) {
-            _reportDateController.text = data['ReportDate'].toString().substring(0, 10);
-          }
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<String?> _fetchDocumentNumberFromServer() async {
-    try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/generateDocumentNumber');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode('KKR'), // Hardcoded to KKR
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        String? documentNumber;
-        if (data is Map<String, dynamic>) {
-          documentNumber = data['documentNumber'] ?? data['DocumentNumber'] ?? data['docNumber'] ?? data['DocNumber'];
-        } else if (data is String) {
-          documentNumber = data;
-        }
-        
-        // Save to persistent storage
-        if (documentNumber != null) {
-          await DocumentNumberStorage.saveDocumentNumber(DocumentNumberKeys.officeWork, documentNumber);
-        }
-        
-        return documentNumber;
-      } else {
-        return null;
-      }
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<void> _pickSubmissionDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: now,
-      firstDate: DateTime(1900),
-      lastDate: DateTime(now.year + 5),
-    );
-    if (picked != null) {
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
       setState(() {
-        _submissionDateController.text = DateFormat('yyyy-MM-dd').format(picked);
+        for (final field in _fields) {
+          field['controller'].text = (data[field['key']] ?? '').toString();
+        }
+        final sub =
+            (data['SubmissionDate'] ?? data['submissionDate'] ?? '').toString();
+        final rep = (data['ReportDate'] ?? data['reportDate'] ?? '').toString();
+        if (sub.isNotEmpty)
+          _submissionDateController.text = sub.substring(0, 10);
+        if (rep.isNotEmpty) _reportDateController.text = rep.substring(0, 10);
       });
+    } catch (_) {
+      /* ignore */
     }
   }
+
+  // Removed server document number generation (handled elsewhere if needed).
+
+  // _pickSubmissionDate removed (submission date fixed to today)
 
   Future<void> _pickReportDate() async {
     final now = DateTime.now();
@@ -340,27 +236,30 @@ class _OfficeWorkState extends State<OfficeWork>
       if (picked.isBefore(threeDaysAgo)) {
         showDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Please Put Valid DSR Date.'),
-            content: const Text(
-              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry(Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.'
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Please Put Valid DSR Date.'),
+                content: const Text(
+                  'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry(Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const DsrExceptionEntryPage(),
+                        ),
+                      );
+                    },
+                    child: const Text('Go to Exception Entry'),
+                  ),
+                ],
               ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const DsrExceptionEntryPage()),
-                  );
-                },
-                child: const Text('Go to Exception Entry'),
-              ),
-            ],
-          ),
         );
         return;
       }
@@ -371,7 +270,9 @@ class _OfficeWorkState extends State<OfficeWork>
   }
 
   Future<void> _pickImage(int index) async {
-    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final pickedFile = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+    );
     if (pickedFile != null) {
       setState(() {
         _selectedImages[index] = File(pickedFile.path);
@@ -382,18 +283,19 @@ class _OfficeWorkState extends State<OfficeWork>
   void _showImageDialog(File imageFile) {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.6,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              fit: BoxFit.contain,
-              image: FileImage(imageFile),
+      builder:
+          (_) => Dialog(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  fit: BoxFit.contain,
+                  image: FileImage(imageFile),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 
@@ -402,70 +304,68 @@ class _OfficeWorkState extends State<OfficeWork>
     if (_currentPosition == null) {
       await _initGeolocation();
     }
-    
-    final dsrData = <String, dynamic>{
-      'ActivityType': 'Office Work',
-      'SubmissionDate': _submissionDateController.text,
-      'ReportDate': _reportDateController.text,
-      ...{
-        for (final field in _fields)
-          field['key'] as String: field['controller'].text
-      },
-      'Images': _selectedImages.map((file) => file?.path).toList(),
-      'latitude': _currentPosition?.latitude.toString() ?? '',
-      'longitude': _currentPosition?.longitude.toString() ?? '',
-      'DsrParam': '53',
-      'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
-      'ProcessType': _processItem == 'Update' ? 'U' : 'A',
-      'CreateId': '2948',
-      'UpdateId': '2948',
-    };
-    
+
+    late DateTime submissionDate;
+    late DateTime reportDate;
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}'
-      );
-      final resp = _processItem == 'Update'
-          ? await http.put(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            )
-          : await http.post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            );
-      final success = (_processItem == 'Update' && resp.statusCode == 204) ||
-                      (_processItem != 'Update' && resp.statusCode == 201);
-      
+      submissionDate = DateTime.parse(_submissionDateController.text.trim());
+      reportDate = DateTime.parse(_reportDateController.text.trim());
+    } catch (_) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success
-              ? exitAfter
-                  ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                  : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-              : 'Error: ${resp.body}'),
-          backgroundColor: success ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
+        const SnackBar(
+          content: Text('Invalid date'),
+          backgroundColor: Colors.red,
         ),
       );
-      
-      if (success) {
-        if (exitAfter) {
-          Navigator.of(context).pop();
-        } else {
-          _clearForm();
-        }
+      return;
+    }
+    // Map first two fields
+    String rem01 = _fields.isNotEmpty ? _fields[0]['controller'].text : '';
+    String rem02 = _fields.length > 1 ? _fields[1]['controller'].text : '';
+    final loginId = await SessionManager.getLoginId() ?? '';
+    final dto = DsrEntryDto(
+      activityType: 'Office Work',
+      submissionDate: submissionDate,
+      reportDate: reportDate,
+      createId: loginId,
+      dsrParam: '53',
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
+      dsrRem01: rem01,
+      dsrRem02: rem02,
+      latitude: _currentPosition?.latitude.toString() ?? '',
+      longitude: _currentPosition?.longitude.toString() ?? '',
+    );
+    bool success = false;
+    try {
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
       }
+      success = true;
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    }
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Exception: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
+          content: Text(
+            _processItem == 'Update'
+                ? 'Updated successfully.'
+                : 'Submitted successfully.',
+          ),
+          backgroundColor: Colors.green,
         ),
       );
+      if (exitAfter) {
+        Navigator.of(context).pop();
+      } else {
+        _clearForm();
+      }
     }
   }
 
@@ -485,31 +385,9 @@ class _OfficeWorkState extends State<OfficeWork>
   }
 
   // Add a method to reset the form (clear document number)
-  void _resetForm() {
-    setState(() {
-      _documentNumber = null;
-      _documentNumberController.clear();
-      _processItem = 'Select';
-      // Clear other form fields as needed
-    });
-    DocumentNumberStorage.clearDocumentNumber(DocumentNumberKeys.officeWork); // Clear from persistent storage
-  }
+  // Removed legacy reset form function.
 
-  Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    final url = Uri.parse('http://10.4.64.23/api/DsrTry');
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(dsrData),
-    );
-    print('Status: ${response.statusCode}');
-    print('Body: ${response.body}');
-    if (response.statusCode == 201) {
-      print('✅ Data inserted successfully!');
-    } else {
-      print('❌ Data NOT inserted! Error: ${response.body}');
-    }
-  }
+  // Removed direct submit helper (centralized now).
 
   @override
   Widget build(BuildContext context) {
@@ -518,22 +396,24 @@ class _OfficeWorkState extends State<OfficeWork>
         backgroundColor: Colors.white,
         appBar: AppBar(
           leading: IconButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const DsrEntry()),
-            ),
+            onPressed:
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DsrEntry()),
+                ),
             icon: const Icon(Icons.arrow_back, color: Colors.white),
           ),
-          title: const Text('Office Work', style: TextStyle(color: Colors.white)),
+          title: const Text(
+            'Office Work',
+            style: TextStyle(color: Colors.white),
+          ),
           backgroundColor: Colors.blue,
           elevation: 0,
         ),
-        body: const Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
-    
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -550,10 +430,11 @@ class _OfficeWorkState extends State<OfficeWork>
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DsrEntry()),
-          ),
+          onPressed:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DsrEntry()),
+              ),
         ),
         actions: [
           IconButton(
@@ -671,7 +552,9 @@ class _OfficeWorkState extends State<OfficeWork>
                             elevation: 0,
                           ),
                           child: Text(
-                            _processItem == 'Update' ? 'Update & New' : 'Submit & New',
+                            _processItem == 'Update'
+                                ? 'Update & New'
+                                : 'Submit & New',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -693,7 +576,9 @@ class _OfficeWorkState extends State<OfficeWork>
                             elevation: 0,
                           ),
                           child: Text(
-                            _processItem == 'Update' ? 'Update & Exit' : 'Submit & Exit',
+                            _processItem == 'Update'
+                                ? 'Update & Exit'
+                                : 'Submit & Exit',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -758,18 +643,21 @@ class _OfficeWorkState extends State<OfficeWork>
         hintText: 'Select process type',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _processdropdownItems
-          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
-          .toList(),
+      items:
+          _processdropdownItems
+              .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+              .toList(),
       onChanged: (val) async {
         setState(() {
           _processItem = val;
         });
         if (val == 'Update') await _fetchDocumentNumbers();
       },
-      validator: (v) => v == null || v == 'Select'
-          ? 'Please select a Process Type'
-          : null,
+      validator:
+          (v) =>
+              v == null || v == 'Select'
+                  ? 'Please select a Process Type'
+                  : null,
     );
   }
 
@@ -807,12 +695,13 @@ class _OfficeWorkState extends State<OfficeWork>
         hintText: 'Select document number',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _documentNumbers
-          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-          .toList(),
+      items:
+          _documentNumbers
+              .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+              .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
-        if (v != null) await _fetchAndPopulateDetails(v);
+        if (v != null) await _autofill(v);
       },
       validator: (v) => v == null ? 'Required' : null,
     );
@@ -870,12 +759,14 @@ class _OfficeWorkState extends State<OfficeWork>
             ),
             hintText: 'Select date',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-            suffixIcon: readOnly
-                ? const Icon(Icons.lock, color: Colors.grey)
-                : const Icon(Icons.calendar_today, color: Colors.blue),
+            suffixIcon:
+                readOnly
+                    ? const Icon(Icons.lock, color: Colors.grey)
+                    : const Icon(Icons.calendar_today, color: Colors.blue),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -889,7 +780,10 @@ class _OfficeWorkState extends State<OfficeWork>
           _buildTextField(
             field['label'],
             field['controller'],
-            keyboardType: field['type'] == 'number' ? TextInputType.number : TextInputType.text,
+            keyboardType:
+                field['type'] == 'number'
+                    ? TextInputType.number
+                    : TextInputType.text,
             maxLines: field['maxLines'] ?? 1,
           ),
           const SizedBox(height: 16),
@@ -951,8 +845,9 @@ class _OfficeWorkState extends State<OfficeWork>
             hintText: 'Enter $label',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -999,7 +894,11 @@ class _OfficeWorkState extends State<OfficeWork>
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 16,
+                          ),
                           SizedBox(width: 4),
                           Text(
                             'Uploaded',
@@ -1062,7 +961,11 @@ class _OfficeWorkState extends State<OfficeWork>
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.visibility, size: 18, color: Colors.green),
+                            Icon(
+                              Icons.visibility,
+                              size: 18,
+                              color: Colors.green,
+                            ),
                             SizedBox(width: 8),
                             Text(
                               'View',
@@ -1112,54 +1015,55 @@ class _OfficeWorkState extends State<OfficeWork>
   void _showHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Office Work Help',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Fill in all the required fields to record your office work details. '
-                'Make sure to select the correct process type (Add/Update) and provide accurate information.',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text(
-                    'Got it',
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Office Work Help',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all the required fields to record your office work details. '
+                    'Make sure to select the correct process type (Add/Update) and provide accurate information.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }

@@ -3,13 +3,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+// Removed direct http/json lookups; using DsrApiService for all network operations.
 import 'package:geolocator/geolocator.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import '../../../../core/services/dsr_api_service.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
+import 'package:learning2/core/services/session_manager.dart';
 
 class PhoneCallWithBuilder extends StatefulWidget {
   const PhoneCallWithBuilder({super.key});
@@ -38,7 +38,7 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
   String? _selectedPurchaserCode = 'Select';
 
   // Loading states
-  bool _isLoadingAreaCodes = true;
+  bool _isLoadingAreaCodes = false;
   bool _isLoadingPurchasers = false;
   bool _isLoadingPurchaserCodes = false;
 
@@ -93,6 +93,7 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
+  bool _showGlobalLoader = false; // global centered loading overlay
 
   @override
   void initState() {
@@ -176,152 +177,150 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _processdropdownItems = ['Select', 'Add', 'Update'];
-      _processItem = 'Select';
-    });
+    try {
+      final list = await DsrApiService.getProcessTypes();
+      if (!mounted) return;
+      setState(() => _processdropdownItems = ['Select', ...list]);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _processdropdownItems = ['Select', 'Add', 'Update']);
+    }
+    _processItem = 'Select';
   }
 
   Future<void> _fetchDocumentNumbers() async {
     setState(() {
       _loadingDocs = true;
+      _showGlobalLoader = true;
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=12',
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers =
-              data
-                  .map((e) {
-                    return (e['DocuNumb'] ??
-                            e['docuNumb'] ??
-                            e['DocumentNumber'] ??
-                            e['documentNumber'] ??
-                            '')
-                        .toString();
-                  })
-                  .where((s) => s.isNotEmpty)
-                  .toList();
-        });
-      }
+      final docs = await DsrApiService.getDocumentNumbers('12');
+      if (!mounted) return;
+      setState(() => _documentNumbers = docs);
     } catch (_) {
-      // ignore errors
+      /* swallow */
     } finally {
-      setState(() {
-        _loadingDocs = false;
-      });
+      if (mounted)
+        setState(() {
+          _loadingDocs = false;
+          _showGlobalLoader = false;
+        });
     }
   }
 
-  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
-    );
+  Future<void> _autofill(String docuNumb) async {
+    setState(() => _showGlobalLoader = true);
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
+      final activityData = data;
+      final areaCode =
+          (activityData['areaCode'] ?? activityData['AreaCode'] ?? '')
+              .toString();
+      final purchaserFlag =
+          (activityData['purchaser'] ?? activityData['Purchaser'] ?? '')
+              .toString();
+      final purchaserCode =
+          (activityData['purchaserCode'] ?? activityData['PurchaserCode'] ?? '')
+              .toString();
+
+      // Load dependent dropdown data sequence so that selection widgets have values
+      if (areaCode.isNotEmpty) {
+        await _fetchPurchasers(areaCode);
+        if (purchaserFlag.isNotEmpty) {
+          await _fetchPurchaserCodes(purchaserFlag);
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _submissionDateController.text = (activityData['SubmissionDate'] ??
+                activityData['submissionDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+        _reportDateController.text = (activityData['ReportDate'] ??
+                activityData['reportDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
         final config = activityFieldConfig[_selectedActivityType] ?? [];
         for (final field in config) {
+          final remKey = field['rem'];
+          final dataVal = activityData[remKey] ?? '';
           if (field['key'] == 'metWith') {
-            setState(() {
-              _metWithItem = data[field['rem']] ?? 'Select';
-            });
+            _metWithItem =
+                dataVal.toString().isEmpty ? 'Select' : dataVal.toString();
           } else {
-            _controllers[field['key']!]?.text = data[field['rem']] ?? '';
+            _controllers[field['key']!]!.text = dataVal.toString();
           }
         }
-        setState(() {
-          _submissionDateController.text =
-              data['SubmissionDate']?.toString().substring(0, 10) ?? '';
-          _reportDateController.text =
-              data['ReportDate']?.toString().substring(0, 10) ?? '';
-          _selectedAreaCode = data['AreaCode'] ?? 'Select';
-          _selectedPurchaser = data['Purchaser'] ?? 'Select';
-          _selectedPurchaserCode = data['PurchaserCode'] ?? 'Select';
-        });
-      }
-    } catch (_) {}
+        if (areaCode.isNotEmpty && _areaCodes.any((m) => m['code'] == areaCode))
+          _selectedAreaCode = areaCode;
+        else
+          _selectedAreaCode = 'Select';
+        if (purchaserFlag.isNotEmpty &&
+            _purchasers.any((m) => m['code'] == purchaserFlag))
+          _selectedPurchaser = purchaserFlag;
+        else
+          _selectedPurchaser = 'Select';
+        if (purchaserCode.isNotEmpty &&
+            _purchaserCodes.any((m) => m['code'] == purchaserCode))
+          _selectedPurchaserCode = purchaserCode;
+        else
+          _selectedPurchaserCode = 'Select';
+      });
+    } catch (e) {
+      debugPrint('Autofill error: $e');
+    } finally {
+      if (mounted) setState(() => _showGlobalLoader = false);
+    }
   }
 
   Future<void> _fetchAreaCodes() async {
+    setState(() => _isLoadingAreaCodes = true);
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getAreaCodes');
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is List) {
-          if (data.isEmpty) {
-            setState(() {
-              _areaCodes = [
-                {'code': 'Select', 'name': 'Select'},
-              ];
-              _isLoadingAreaCodes = false;
-            });
-            return;
-          }
-
-          final processedAreaCodes =
-              data
-                  .map((item) {
-                    final code =
-                        item['Code']?.toString().trim() ??
-                        item['code']?.toString().trim() ??
-                        item['AreaCode']?.toString().trim() ??
-                        '';
-                    final name =
-                        item['Name']?.toString().trim() ??
-                        item['name']?.toString().trim() ??
-                        code;
-                    return {'code': code, 'name': name};
-                  })
-                  .where((item) {
-                    return item['code']!.isNotEmpty && item['code'] != '   ';
-                  })
-                  .toList();
-
-          final seenCodes = <String>{};
-          final uniqueAreaCodes = [
-            {'code': 'Select', 'name': 'Select'},
-            ...processedAreaCodes.where((item) {
-              if (seenCodes.contains(item['code'])) return false;
-              seenCodes.add(item['code']!);
-              return true;
-            }),
-          ];
-
-          setState(() {
-            _areaCodes = uniqueAreaCodes;
-            _isLoadingAreaCodes = false;
-            final validCodes = _areaCodes.map((a) => a['code']).toSet();
-            if (_selectedAreaCode == null ||
-                !validCodes.contains(_selectedAreaCode)) {
-              _selectedAreaCode = 'Select';
-            }
-          });
-        } else {
-          throw Exception(
-            'Invalid response format: expected List but got ${data.runtimeType}',
-          );
-        }
-      } else if (response.statusCode == 404) {
+      final data = await DsrApiService.getAreaCodes();
+      if (data.isEmpty) {
         setState(() {
           _areaCodes = [
             {'code': 'Select', 'name': 'Select'},
           ];
           _isLoadingAreaCodes = false;
         });
-      } else {
-        throw Exception('Failed to fetch area codes: ${response.statusCode}');
+        return;
       }
-    } catch (e) {
+      final processedAreaCodes =
+          data
+              .map((item) {
+                final code =
+                    (item['Code'] ?? item['code'] ?? item['AreaCode'] ?? '')
+                        .toString()
+                        .trim();
+                final name =
+                    (item['Name'] ?? item['name'] ?? code).toString().trim();
+                return {'code': code, 'name': name};
+              })
+              .where((m) => m['code']!.isNotEmpty)
+              .toList();
+      final seen = <String>{};
+      final uniqueAreaCodes = [
+        {'code': 'Select', 'name': 'Select'},
+        ...processedAreaCodes.where((m) {
+          if (seen.contains(m['code'])) return false;
+          seen.add(m['code']!);
+          return true;
+        }),
+      ];
+      if (!mounted) return;
+      setState(() {
+        _areaCodes = uniqueAreaCodes;
+        _isLoadingAreaCodes = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _areaCodes = [
           {'code': 'Select', 'name': 'Select'},
@@ -356,58 +355,32 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
     });
 
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getPurchaserOptions');
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is List) {
-          final seenCodes = <String>{};
-          final uniquePurchasers = [
-            {'code': 'Select', 'name': 'Select'},
-            ...data
-                .map(
-                  (item) => {
-                    'code':
-                        item['Code']?.toString() ??
-                        item['code']?.toString() ??
-                        '',
-                    'name':
-                        item['Description']?.toString() ??
-                        item['description']?.toString() ??
-                        '',
-                  },
-                )
-                .where((item) {
-                  if (item['code']!.isEmpty ||
-                      seenCodes.contains(item['code'])) {
-                    return false;
-                  }
-                  seenCodes.add(item['code']!);
-                  return true;
-                }),
-          ];
-
-          setState(() {
-            _purchasers = uniquePurchasers;
-            _isLoadingPurchasers = false;
-            final validCodes = _purchasers.map((p) => p['code']).toSet();
-            if (_selectedPurchaser == null ||
-                !validCodes.contains(_selectedPurchaser)) {
-              _selectedPurchaser = 'Select';
-            }
-          });
-        } else {
-          throw Exception(
-            'Invalid response format: expected List but got ${data.runtimeType}',
-          );
-        }
-      } else {
-        throw Exception(
-          'Failed to fetch purchaser options: ${response.statusCode}',
-        );
-      }
-    } catch (e) {
+      final data = await DsrApiService.getPurchaserOptions();
+      final seen = <String>{};
+      final unique = [
+        {'code': 'Select', 'name': 'Select'},
+        ...data
+            .map((item) {
+              return {
+                'code': (item['Code'] ?? item['code'] ?? '').toString(),
+                'name':
+                    (item['Description'] ?? item['description'] ?? '')
+                        .toString(),
+              };
+            })
+            .where((m) {
+              if (m['code']!.isEmpty || seen.contains(m['code'])) return false;
+              seen.add(m['code']!);
+              return true;
+            }),
+      ];
+      if (!mounted) return;
+      setState(() {
+        _purchasers = unique;
+        _isLoadingPurchasers = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _purchasers = [
           {'code': 'Select', 'name': 'Select'},
@@ -433,7 +406,6 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
       _selectedPurchaserCode = 'Select';
     });
     try {
-      // Map displayed names back to their codes for API call
       String resolvedAreaCode = '';
       for (final a in _areaCodes) {
         if (a['name'] == _selectedAreaCode || a['code'] == _selectedAreaCode) {
@@ -452,50 +424,32 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
         resolvedAreaCode,
         resolvedPurchaserFlag,
       );
-      List purchaserCodesList = [];
-      if (data.containsKey('PurchaserCodes')) {
-        purchaserCodesList = data['PurchaserCodes'] as List;
-      } else if (data.containsKey('purchaserCodes')) {
-        purchaserCodesList = data['purchaserCodes'] as List;
-      }
-      final purchaserCodes =
-          purchaserCodesList
-              .where((item) => item is Map)
-              .map((item) => item as Map)
-              .map(
-                (item) => {
-                  'code':
-                      (item['code'] ?? item['Code'] ?? '').toString().trim(),
-                  'name':
-                      (item['name'] ??
-                              item['Name'] ??
-                              item['code'] ??
-                              item['Code'] ??
-                              '')
-                          .toString()
-                          .trim(),
-                },
-              )
+      List list = [];
+      if (data.containsKey('PurchaserCodes'))
+        list = data['PurchaserCodes'];
+      else if (data.containsKey('purchaserCodes'))
+        list = data['purchaserCodes'];
+      final parsed =
+          list
+              .where((e) => e is Map)
+              .map((e) {
+                final m = e as Map;
+                final code = (m['code'] ?? m['Code'] ?? '').toString().trim();
+                final name = (m['name'] ?? m['Name'] ?? code).toString().trim();
+                return {'code': code, 'name': name};
+              })
               .where((m) => m['code']!.isNotEmpty)
               .toList();
-
-      if (purchaserCodes.isEmpty) {
-        setState(() {
-          _purchaserCodes = [
-            {'code': 'Select', 'name': 'Select'},
-          ];
-          _isLoadingPurchaserCodes = false;
-        });
-      } else {
-        setState(() {
-          _purchaserCodes = [
-            {'code': 'Select', 'name': 'Select'},
-            ...purchaserCodes,
-          ];
-          _isLoadingPurchaserCodes = false;
-        });
-      }
-    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _purchaserCodes = [
+          {'code': 'Select', 'name': 'Select'},
+          ...parsed,
+        ];
+        _isLoadingPurchaserCodes = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _purchaserCodes = [
           {'code': 'Select', 'name': 'Select'},
@@ -505,31 +459,56 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
     }
   }
 
-  void _onAreaCodeChanged(String? value) {
-    setState(() {
-      _selectedAreaCode = value;
-      _selectedPurchaser = 'Select';
-      _selectedPurchaserCode = 'Select';
-    });
-    if (value != null && value != 'Select') {
-      _fetchPurchasers(value);
-    }
+  // Dropdown builders reintroduced after overlay integration
+  Widget _buildAreaCodeDropdown() {
+    final items = _areaCodes.map((m) => m['code']!).toList();
+    if (!items.contains('Select')) items.insert(0, 'Select');
+    return _buildDropdownField('Area Code', _selectedAreaCode, items, (val) {
+      setState(() => _selectedAreaCode = val);
+      if (val != null) {
+        if (val == 'Select') {
+          setState(() {
+            _purchasers = [
+              {'code': 'Select', 'name': 'Select'},
+            ];
+            _selectedPurchaser = 'Select';
+            _purchaserCodes = [
+              {'code': 'Select', 'name': 'Select'},
+            ];
+            _selectedPurchaserCode = 'Select';
+          });
+        } else {
+          _fetchPurchasers(val);
+        }
+      }
+    }, isLoading: _isLoadingAreaCodes);
   }
 
-  void _onPurchaserChanged(String? value) {
-    setState(() {
-      _selectedPurchaser = value;
-      _selectedPurchaserCode = 'Select';
-    });
-    if (value != null && value != 'Select') {
-      _fetchPurchaserCodes(value);
-    }
+  Widget _buildPurchaserTypeDropdown() {
+    final items = _purchasers.map((m) => m['code']!).toList();
+    if (!items.contains('Select')) items.insert(0, 'Select');
+    return _buildDropdownField('Purchaser Type', _selectedPurchaser, items, (
+      val,
+    ) {
+      setState(() => _selectedPurchaser = val);
+      if (val != null && val != 'Select') {
+        _fetchPurchaserCodes(val);
+      }
+    }, isLoading: _isLoadingPurchasers);
   }
 
-  void _onPurchaserCodeChanged(String? value) {
-    setState(() {
-      _selectedPurchaserCode = value;
-    });
+  Widget _buildPurchaserCodeDropdown() {
+    final items = _purchaserCodes.map((m) => m['code']!).toList();
+    if (!items.contains('Select')) items.insert(0, 'Select');
+    return _buildDropdownField(
+      'Purchaser Code',
+      _selectedPurchaserCode,
+      items,
+      (val) {
+        setState(() => _selectedPurchaserCode = val);
+      },
+      isLoading: _isLoadingPurchaserCodes,
+    );
   }
 
   void _setSubmissionDateToToday() {
@@ -618,94 +597,115 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
 
-    final dsrData = <String, dynamic>{
-      'ActivityType': _selectedActivityType,
-      'SubmissionDate': _submissionDateController.text,
-      'ReportDate': _reportDateController.text,
-      'CreateId': '2948',
-      'UpdateId': '2948',
-      'AreaCode': _selectedAreaCode ?? '',
-      'Purchaser': _selectedPurchaser ?? '',
-      'PurchaserCode': _selectedPurchaserCode ?? '',
-      'DsrParam': '12',
-      'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
-      'ProcessType': _processItem == 'Update' ? 'U' : 'A',
-      'latitude': _currentPosition?.latitude.toString() ?? '',
-      'longitude': _currentPosition?.longitude.toString() ?? '',
-    };
-
-    final config = activityFieldConfig[_selectedActivityType] ?? [];
-    for (final field in config) {
-      if (field['key'] == 'metWith') {
-        dsrData[field['rem']!] = _metWithItem ?? '';
-      } else {
-        dsrData[field['rem']!] = _controllers[field['key']!]?.text ?? '';
-      }
-    }
-
-    final imageData = <String, dynamic>{};
-    for (int i = 0; i < _selectedImages.length; i++) {
-      final file = _selectedImages[i];
-      if (file != null) {
-        final imageBytes = await file.readAsBytes();
-        final base64Image =
-            'data:image/jpeg;base64,${base64Encode(imageBytes)}';
-        imageData['image${i + 1}'] = base64Image;
-      }
-    }
-    dsrData['Images'] = imageData;
-
+    late DateTime submissionDate;
+    late DateTime reportDate;
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}',
+      submissionDate = DateTime.parse(_submissionDateController.text.trim());
+      reportDate = DateTime.parse(_reportDateController.text.trim());
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid date'),
+          backgroundColor: Colors.red,
+        ),
       );
-
-      final resp =
-          _processItem == 'Update'
-              ? await http.put(
-                url,
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode(dsrData),
-              )
-              : await http.post(
-                url,
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode(dsrData),
-              );
-
-      final success =
-          (_processItem == 'Update' && resp.statusCode == 204) ||
-          (_processItem != 'Update' && resp.statusCode == 201);
-
+      return;
+    }
+    final config = activityFieldConfig[_selectedActivityType] ?? [];
+    String rem01 = '';
+    String rem02 = '';
+    String rem03 = '';
+    String rem04 = '';
+    String rem05 = '';
+    String rem06 = '';
+    String rem07 = '';
+    String rem08 = '';
+    for (final field in config) {
+      final val =
+          field['key'] == 'metWith'
+              ? (_metWithItem ?? '')
+              : (_controllers[field['key']!]?.text ?? '');
+      switch (field['rem']) {
+        case 'dsrRem01':
+          rem01 = val;
+          break;
+        case 'dsrRem02':
+          rem02 = val;
+          break;
+        case 'dsrRem03':
+          rem03 = val;
+          break;
+        case 'dsrRem04':
+          rem04 = val;
+          break;
+        case 'dsrRem05':
+          rem05 = val;
+          break;
+        case 'dsrRem06':
+          rem06 = val;
+          break;
+        case 'dsrRem07':
+          rem07 = val;
+          break;
+        case 'dsrRem08':
+          rem08 = val;
+          break;
+      }
+    }
+    final loginId = await SessionManager.getLoginId() ?? '';
+    final dto = DsrEntryDto(
+      activityType: _selectedActivityType,
+      submissionDate: submissionDate,
+      reportDate: reportDate,
+      createId: loginId,
+      dsrParam: '12',
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
+      dsrRem01: rem01,
+      dsrRem02: rem02,
+      dsrRem03: rem03,
+      dsrRem04: rem04,
+      dsrRem05: rem05,
+      dsrRem06: rem06,
+      dsrRem07: rem07,
+      dsrRem08: rem08,
+      areaCode: _selectedAreaCode ?? '',
+      purchaser: _selectedPurchaser ?? '',
+      purchaserCode: _selectedPurchaserCode ?? '',
+      latitude: _currentPosition?.latitude.toString() ?? '',
+      longitude: _currentPosition?.longitude.toString() ?? '',
+    );
+    bool success = false;
+    try {
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
+      }
+      success = true;
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+    }
+    if (!mounted) return;
+    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            success
-                ? exitAfter
-                    ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                    : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-                : 'Error: ${resp.body}',
+            _processItem == 'Update'
+                ? 'Updated successfully.'
+                : 'Submitted successfully.',
           ),
-          backgroundColor: success ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.green,
         ),
       );
-
-      if (success) {
-        if (exitAfter) {
-          Navigator.of(context).pop();
-        } else {
-          _clearForm();
-        }
+      if (exitAfter) {
+        Navigator.of(context).pop();
+      } else {
+        _clearForm();
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Exception: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     }
   }
 
@@ -761,194 +761,212 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
           ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header Section
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.blue[100]!),
-                    ),
-                    child: Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: const BoxDecoration(
-                            color: Colors.blue,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.phone_in_talk,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Phone Call With Builder',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Record details of your phone call with builder or stockist',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Process Type Section
-                  _buildSectionTitle('Process Type'),
-                  const SizedBox(height: 8),
-                  _buildProcessTypeDropdown(),
-                  const SizedBox(height: 24),
-
-                  // Document Number (for Update)
-                  if (_processItem == 'Update') ...[
-                    _buildSectionTitle('Document Number'),
-                    const SizedBox(height: 8),
-                    _loadingDocs
-                        ? const Center(child: CircularProgressIndicator())
-                        : _buildDocumentNumberDropdown(),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Date Fields Section
-                  _buildSectionTitle('Date Information'),
-                  const SizedBox(height: 8),
-                  _buildDateField(
-                    'Submission Date',
-                    _submissionDateController,
-                    readOnly: true,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDateField(
-                    'Report Date',
-                    _reportDateController,
-                    onTap: _pickReportDate,
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Location Information Section
-                  _buildSectionTitle('Location Information'),
-                  const SizedBox(height: 8),
-                  _buildDropdownField(
-                    'Area Code',
-                    _selectedAreaCode,
-                    _areaCodes.map((area) => area['name']!).toList(),
-                    _onAreaCodeChanged,
-                    isLoading: _isLoadingAreaCodes,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDropdownField(
-                    'Purchaser Type',
-                    _selectedPurchaser,
-                    _purchasers.map((purchaser) => purchaser['name']!).toList(),
-                    _onPurchaserChanged,
-                    isLoading: _isLoadingPurchasers,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDropdownField(
-                    'Purchaser Code',
-                    _selectedPurchaserCode,
-                    _purchaserCodes
-                        .map(
-                          (code) =>
-                              code['code'] == 'Select'
-                                  ? 'Select'
-                                  : '${code['code']} - ${code['name']}',
-                        )
-                        .toList(),
-                    _onPurchaserCodeChanged,
-                    isLoading: _isLoadingPurchaserCodes,
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Dynamic Fields Section
-                  _buildSectionTitle('Call Details'),
-                  const SizedBox(height: 8),
-                  ..._buildDynamicFields(),
-                  const SizedBox(height: 24),
-
-                  // Image Upload Section
-                  _buildSectionTitle('Upload Images'),
-                  const SizedBox(height: 8),
-                  ..._buildImageUploadSection(),
-                  const SizedBox(height: 32),
-
-                  // Submit Buttons
-                  Row(
+      body: Stack(
+        children: [
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _onSubmit(exitAfter: false),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                      // Header Section
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.blue[100]!),
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: const BoxDecoration(
+                                color: Colors.blue,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.phone_in_talk,
+                                color: Colors.white,
+                                size: 28,
+                              ),
                             ),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            'Submit & New',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Phone Call With Builder',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Record details of your phone call with builder or stockist',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _onSubmit(exitAfter: true),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue[700],
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 32),
+
+                      // Process Type Section
+                      _buildSectionTitle('Process Type'),
+                      const SizedBox(height: 8),
+                      _buildProcessTypeDropdown(),
+                      const SizedBox(height: 24),
+
+                      // Document Number (for Update)
+                      if (_processItem == 'Update') ...[
+                        _buildSectionTitle('Document Number'),
+                        const SizedBox(height: 8),
+                        _loadingDocs
+                            ? const Center(child: CircularProgressIndicator())
+                            : _buildDocumentNumberDropdown(),
+                        const SizedBox(height: 24),
+                      ],
+
+                      // Date Fields Section
+                      _buildSectionTitle('Date Information'),
+                      const SizedBox(height: 8),
+                      _buildDateField(
+                        'Submission Date',
+                        _submissionDateController,
+                        readOnly: true,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildDateField(
+                        'Report Date',
+                        _reportDateController,
+                        onTap: _pickReportDate,
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Location Information Section
+                      _buildSectionTitle('Location Information'),
+                      const SizedBox(height: 8),
+                      _buildAreaCodeDropdown(),
+                      const SizedBox(height: 16),
+                      _buildPurchaserTypeDropdown(),
+                      const SizedBox(height: 16),
+                      _buildPurchaserCodeDropdown(),
+                      const SizedBox(height: 24),
+
+                      // Dynamic Fields Section
+                      _buildSectionTitle('Call Details'),
+                      const SizedBox(height: 8),
+                      ..._buildDynamicFields(),
+                      const SizedBox(height: 24),
+
+                      // Image Upload Section
+                      _buildSectionTitle('Upload Images'),
+                      const SizedBox(height: 8),
+                      ..._buildImageUploadSection(),
+                      const SizedBox(height: 32),
+
+                      // Submit Buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _onSubmit(exitAfter: false),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: const Text(
+                                'Submit & New',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
-                            elevation: 0,
                           ),
-                          child: const Text(
-                            'Submit & Exit',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _onSubmit(exitAfter: true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue[700],
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: const Text(
+                                'Submit & Exit',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
+          if (_showGlobalLoader)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: SizedBox(
+                    width: 90,
+                    height: 90,
+                    child: Card(
+                      elevation: 8,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(16)),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 12),
+                            Text(
+                              'Loading...',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1056,7 +1074,7 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
               .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
-        if (v != null) await _fetchAndPopulateDetails(v);
+        if (v != null) await _autofill(v);
       },
       validator: (v) => v == null ? 'Required' : null,
     );
@@ -1169,14 +1187,34 @@ class _PhoneCallWithBuilderState extends State<PhoneCallWithBuilder>
                       vertical: 4,
                     ),
                     items:
-                        items
-                            .map(
-                              (item) => DropdownMenuItem(
-                                value: item,
-                                child: Text(item),
-                              ),
-                            )
-                            .toList(),
+                        items.map((item) {
+                          String display = item;
+                          if (label == 'Area Code' && item != 'Select') {
+                            final match = _areaCodes.firstWhere(
+                              (a) => a['code'] == item,
+                              orElse: () => {'code': item, 'name': item},
+                            );
+                            display = '${match['code']} - ${match['name']}';
+                          } else if (label == 'Purchaser Type' &&
+                              item != 'Select') {
+                            final match = _purchasers.firstWhere(
+                              (p) => p['code'] == item,
+                              orElse: () => {'code': item, 'name': item},
+                            );
+                            display = '${match['code']} - ${match['name']}';
+                          } else if (label == 'Purchaser Code' &&
+                              item != 'Select') {
+                            final match = _purchaserCodes.firstWhere(
+                              (c) => c['code'] == item,
+                              orElse: () => {'code': item, 'name': item},
+                            );
+                            display = '${match['code']} - ${match['name']}';
+                          }
+                          return DropdownMenuItem(
+                            value: item,
+                            child: Text(display),
+                          );
+                        }).toList(),
                     onChanged: onChanged,
                     icon: const Icon(
                       Icons.keyboard_arrow_down,

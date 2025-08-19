@@ -93,32 +93,21 @@ class _HomeScreenState extends State<HomeScreen> {
     return AppBar(
       elevation: 0,
       backgroundColor: Colors.white,
-      title: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.star, color: Colors.blue.shade700, size: 22),
-                const SizedBox(width: 6),
-                Text(
-                  'SPARSH',
-                  style: TextStyle(
-                    color: Colors.blue.shade700,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-              ],
-            ),
+      title: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          'SPARSH',
+          style: TextStyle(
+            color: Colors.blue.shade700,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.0,
           ),
-        ],
+        ),
       ),
       centerTitle: true,
       iconTheme: IconThemeData(color: Colors.grey.shade700),
@@ -544,37 +533,7 @@ class _HomeContentState extends State<HomeContent> {
           const SizedBox(height: 24),
           _buildSectionTitle("Features"),
           const SizedBox(height: 12),
-          _buildFeatureTabs(),
-          const SizedBox(height: 24),
           _buildFeatureGrid(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard(String title, String value, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: Colors.white, size: 20),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          Text(
-            title,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
         ],
       ),
     );
@@ -648,54 +607,6 @@ class _HomeContentState extends State<HomeContent> {
         fontSize: 18,
         fontWeight: FontWeight.bold,
         color: Colors.grey.shade800,
-      ),
-    );
-  }
-
-  Widget _buildFeatureTabs() {
-    final List<String> tabs = [
-      "All",
-      "Registration",
-      "Documents",
-      "Tracking",
-      "Reports",
-    ];
-    return SizedBox(
-      height: 40,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: tabs.length,
-        itemBuilder: (context, index) {
-          final isSelected = index == 0;
-          return Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: Material(
-              color: isSelected ? Colors.blue.shade50 : Colors.transparent,
-              borderRadius: BorderRadius.circular(20),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: () {},
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: Text(
-                    tabs[index],
-                    style: TextStyle(
-                      color:
-                          isSelected
-                              ? Colors.blue.shade700
-                              : Colors.grey.shade600,
-                      fontWeight:
-                          isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
       ),
     );
   }
@@ -923,9 +834,7 @@ class _HomeContentState extends State<HomeContent> {
                     ),
                   ),
                 )
-                .animate(
-                  target: index.toDouble(),
-                ) // Animate each card with a delay based on index
+                .animate() // Always play animation; delays are per-item below
                 .fadeIn(duration: 600.ms, delay: (index * 100).ms)
                 .scale(
                   begin: const Offset(0.8, 0.8),
@@ -984,7 +893,7 @@ class _HomeContentState extends State<HomeContent> {
       future: _checkAssetExists(iconPath),
       builder: (context, snapshot) {
         if (snapshot.hasData && snapshot.data == true) {
-          return Image.asset(
+          final img = Image.asset(
             iconPath,
             fit: BoxFit.contain,
             width: 32,
@@ -994,6 +903,20 @@ class _HomeContentState extends State<HomeContent> {
               return Icon(fallbackIcon, color: featureColor, size: 32);
             },
           );
+          // Painter KYC Tracking icon appears blank because the asset is likely
+          // a white/very light graphic on a white inner container. Add a subtle
+          // tinted background only for this specific asset to ensure visibility.
+          if (iconPath.contains('painter_kyc_tracking')) {
+            return Container(
+              decoration: BoxDecoration(
+                color: featureColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.center,
+              child: img,
+            );
+          }
+          return img;
         } else {
           // Use fallback icon if asset doesn't exist or is loading
           return Icon(fallbackIcon, color: featureColor, size: 32);

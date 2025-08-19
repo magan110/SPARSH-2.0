@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:learning2/core/services/session_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
+import 'package:http/http.dart' as http; // retained for legacy pieces
 import 'dart:convert';
+import '../../../../core/services/dsr_api_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dsr_entry.dart';
 import '../../../../core/utils/document_number_storage.dart';
@@ -29,7 +31,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
   // Process type dropdown state
   String? _processItem = 'Select';
   List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
-  String? _processTypeError;
+  // removed unused _processTypeError after refactor
 
   // Document-number dropdown state
   bool _loadingDocs = false;
@@ -49,7 +51,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
 
   // Document number
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
+  // removed unused persisted document number variable
 
   // Dynamic field config for activity type
   final Map<String, List<Map<String, String>>> activityFieldConfig = {
@@ -139,16 +141,12 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
       DocumentNumberKeys.meetingNewPurchaser,
     );
     if (savedDocNumber != null) {
-      setState(() {
-        _documentNumber = savedDocNumber;
-      });
+      // retained for potential future use
     }
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _processTypeError = null;
-    });
+    // reset state (no error variable kept)
     setState(() {
       _processdropdownItems = ['Select', 'Add', 'Update'];
       _processItem = 'Select';
@@ -161,30 +159,11 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=50',
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers =
-              data
-                  .map((e) {
-                    return (e['DocuNumb'] ??
-                            e['docuNumb'] ??
-                            e['DocumentNumber'] ??
-                            e['documentNumber'] ??
-                            '')
-                        .toString();
-                  })
-                  .where((s) => s.isNotEmpty)
-                  .toList();
-        });
-      }
-    } catch (_) {
-      // ignore errors
+      final nums = await DsrApiService.getDocumentNumbers('50');
+      setState(() {
+        _documentNumbers = nums;
+      });
     } finally {
       setState(() {
         _loadingDocs = false;
@@ -193,27 +172,30 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
   }
 
   Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
-        setState(() {
-          _purchaserNameController.text = data['Purchaser'] ?? '';
-          _submissionDateController.text =
-              data['SubmissionDate']?.toString().substring(0, 10) ?? '';
-          _reportDateController.text =
-              data['ReportDate']?.toString().substring(0, 10) ?? '';
-        });
-
-        final config = activityFieldConfig[_selectedActivityType] ?? [];
-        for (final field in config) {
-          _controllers[field['key']!]?.text = data[field['rem']] ?? '';
-        }
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
+      setState(() {
+        _purchaserNameController.text = data['Purchaser']?.toString() ?? '';
+        _submissionDateController.text = (data['SubmissionDate'] ??
+                data['submissionDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+        _reportDateController.text = (data['ReportDate'] ??
+                data['reportDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+      });
+      final config = activityFieldConfig[_selectedActivityType] ?? [];
+      for (final field in config) {
+        _controllers[field['key']!]?.text =
+            data[field['rem']]?.toString() ?? '';
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Autofill error: $e');
+    }
   }
 
   void _onProcessTypeChanged(String? value) {
@@ -323,13 +305,14 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
 
+    final loginId = await SessionManager.getLoginId() ?? '';
     final dsrData = <String, dynamic>{
       'ActivityType': _selectedActivityType,
       'SubmissionDate': _submissionDateController.text,
       'ReportDate': _reportDateController.text,
       'Purchaser': _purchaserNameController.text,
-      'CreateId': '2948',
-      'UpdateId': '2948',
+      'CreateId': loginId,
+      'UpdateId': loginId,
       'DsrParam': '50',
       'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
       'ProcessType': _processItem == 'Update' ? 'U' : 'A',
@@ -426,45 +409,7 @@ class _MeetingWithNewPurchaserState extends State<MeetingWithNewPurchaser>
     _formKey.currentState?.reset();
   }
 
-  Future<String?> _fetchDocumentNumberFromServer() async {
-    try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/generateDocumentNumber',
-      );
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode('KKR'), // Hardcoded to KKR
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        String? documentNumber;
-        if (data is Map<String, dynamic>) {
-          documentNumber =
-              data['documentNumber'] ??
-              data['DocumentNumber'] ??
-              data['docNumber'] ??
-              data['DocNumber'];
-        } else if (data is String) {
-          documentNumber = data;
-        }
-
-        if (documentNumber != null) {
-          await DocumentNumberStorage.saveDocumentNumber(
-            DocumentNumberKeys.meetingNewPurchaser,
-            documentNumber,
-          );
-        }
-
-        return documentNumber;
-      } else {
-        return null;
-      }
-    } catch (e) {
-      return null;
-    }
-  }
+  // removed unused server document number generator
 
   @override
   Widget build(BuildContext context) {

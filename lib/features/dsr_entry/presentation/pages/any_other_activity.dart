@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:learning2/core/services/session_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../../core/services/dsr_api_service.dart';
@@ -164,6 +165,32 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
     }
   }
 
+  // Autofill existing document selection
+  Future<void> _autofill(String docuNumb) async {
+    try {
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
+      setState(() {
+        _dateController.text = (data['SubmissionDate'] ??
+                data['submissionDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+        _reportDateController.text = (data['ReportDate'] ??
+                data['reportDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+        _activity1Controller.text = data['dsrRem01']?.toString() ?? '';
+        _activity2Controller.text = data['dsrRem02']?.toString() ?? '';
+        _activity3Controller.text = data['dsrRem03']?.toString() ?? '';
+        _anyOtherPointsController.text = data['dsrRem04']?.toString() ?? '';
+      });
+    } catch (e) {
+      debugPrint('Autofill error: $e');
+    }
+  }
+
   // DATE PICKERS
   void _setSubmissionDateToToday() {
     final today = DateTime.now();
@@ -262,11 +289,12 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
 
+    final loginId = await SessionManager.getLoginId() ?? '';
     final dto = DsrEntryDto(
       activityType: 'Any Other Activity',
       submissionDate: _selectedDate ?? DateTime.now(),
       reportDate: _selectedReportDate ?? DateTime.now(),
-      createId: '2948', // TODO replace with real user id
+      createId: loginId,
       dsrParam: param,
       processType: _processItem == 'Update' ? 'U' : 'A',
       docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
@@ -648,6 +676,7 @@ class _AnyOtherActivityState extends State<AnyOtherActivity>
               .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
+        if (v != null) await _autofill(v);
       },
       validator: (v) => v == null ? 'Required' : null,
     );

@@ -1,70 +1,76 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:learning2/core/services/session_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+// Removed direct http/json; now using centralized DsrApiService + DsrEntryDto.
+import '../../../../core/services/dsr_api_service.dart';
 import 'dsr_entry.dart';
 
 class PhoneCallWithUnregisterdPurchaser extends StatefulWidget {
   const PhoneCallWithUnregisterdPurchaser({super.key});
 
   @override
-  State<PhoneCallWithUnregisterdPurchaser> createState() => _PhoneCallWithUnregisterdPurchaserState();
+  State<PhoneCallWithUnregisterdPurchaser> createState() =>
+      _PhoneCallWithUnregisterdPurchaserState();
 }
 
-class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregisterdPurchaser>
+class _PhoneCallWithUnregisterdPurchaserState
+    extends State<PhoneCallWithUnregisterdPurchaser>
     with SingleTickerProviderStateMixin {
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
-  
+
   final _formKey = GlobalKey<FormState>();
-  
+
   // Process dropdown
   String? _processItem = 'Select';
-  final List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
-  
+  List<String> _processdropdownItems = ['Select'];
+
   // Dates
-  final TextEditingController _submissionDateController = TextEditingController();
+  final TextEditingController _submissionDateController =
+      TextEditingController();
   final TextEditingController _reportDateController = TextEditingController();
-  
-  // Area Code dropdown
+
+  // Area Code dropdown (fetched)
   String? _areaCode = 'Select';
-  final List<String> _areaCodes = ['Select', 'North', 'South', 'East', 'West'];
-  
+  List<Map<String, String>> _areaCodes = [
+    {'code': 'Select', 'name': 'Select'},
+  ];
+  bool _loadingAreaCodes = false; // used in dropdown builder
+
   // Mobile No
   final TextEditingController _mobileController = TextEditingController();
-  
-  // Purchaser / Retailer dropdown
+
+  // Purchaser / Retailer dropdown (fetched)
   String? _purchaserType = 'Select';
-  final List<String> _purchaserTypes = [
-    'Select',
-    'Purchaser (Non Trade)',
-    'Authorised Dealer'
+  List<Map<String, String>> _purchasers = [
+    {'code': 'Select', 'name': 'Select'},
   ];
-  
+  bool _loadingPurchasers = false; // used in dropdown builder
+
   // Party Name
   final TextEditingController _partyNameController = TextEditingController();
-  
+
   // Counter Type dropdown
   String? _counterType = 'Select';
   final List<String> _counterTypes = ['Select', 'Type A', 'Type B'];
-  
+
   // Pin Code
   final TextEditingController _pinCodeController = TextEditingController();
-  
+
   // District
   final TextEditingController _districtController = TextEditingController();
-  
+
   // Visited City
   final TextEditingController _visitedCityController = TextEditingController();
-  
+
   // Name & Designation
   final TextEditingController _nameDesigController = TextEditingController();
-  
+
   // Topics discussed
   final TextEditingController _topicsController = TextEditingController();
-  
+
   // Images
   List<File?> _selectedImages = [null];
 
@@ -80,9 +86,96 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
       curve: Curves.easeOut,
     );
     _fadeController.forward();
-    
+
     _setSubmissionDateToToday();
+    _fetchProcessTypes();
+    _fetchAreaCodes();
+    _fetchPurchasers();
   }
+
+  Future<void> _fetchProcessTypes() async {
+    try {
+      final list = await DsrApiService.getProcessTypes();
+      if (!mounted) return;
+      setState(() => _processdropdownItems = ['Select', ...list]);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _processdropdownItems = ['Select', 'Add', 'Update']);
+    }
+    _processItem = 'Select';
+  }
+
+  Future<void> _fetchAreaCodes() async {
+    setState(() => _loadingAreaCodes = true);
+    try {
+      final data = await DsrApiService.getAreaCodes();
+      final processed =
+          data
+              .map((e) {
+                final code =
+                    (e['Code'] ?? e['code'] ?? e['AreaCode'] ?? '').toString();
+                final name = (e['Name'] ?? e['name'] ?? code).toString();
+                return {'code': code, 'name': name};
+              })
+              .where((m) => m['code']!.isNotEmpty)
+              .toList();
+      if (!mounted) return;
+      setState(
+        () =>
+            _areaCodes = [
+              {'code': 'Select', 'name': 'Select'},
+              ...processed,
+            ],
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(
+        () =>
+            _areaCodes = [
+              {'code': 'Select', 'name': 'Select'},
+            ],
+      );
+    } finally {
+      if (mounted) setState(() => _loadingAreaCodes = false);
+    }
+  }
+
+  Future<void> _fetchPurchasers() async {
+    setState(() => _loadingPurchasers = true);
+    try {
+      final data = await DsrApiService.getPurchaserOptions();
+      final processed =
+          data
+              .map((e) {
+                final code = (e['Code'] ?? e['code'] ?? '').toString();
+                final name =
+                    (e['Description'] ?? e['description'] ?? '').toString();
+                return {'code': code, 'name': name};
+              })
+              .where((m) => m['code']!.isNotEmpty)
+              .toList();
+      if (!mounted) return;
+      setState(
+        () =>
+            _purchasers = [
+              {'code': 'Select', 'name': 'Select'},
+              ...processed,
+            ],
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(
+        () =>
+            _purchasers = [
+              {'code': 'Select', 'name': 'Select'},
+            ],
+      );
+    } finally {
+      if (mounted) setState(() => _loadingPurchasers = false);
+    }
+  }
+
+  // (Autofill for update not implemented in UI yet; could be added with process type Update.)
 
   @override
   void dispose() {
@@ -111,31 +204,32 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
       context: context,
       initialDate: now,
       firstDate: DateTime(now.year - 10), // Allow any past date (last 10 years)
-      lastDate: now,  // Only allow up to today
+      lastDate: now, // Only allow up to today
     );
     if (picked != null) {
       if (picked.isBefore(threeDaysAgo)) {
         showDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Please Put Valid DSR Date.'),
-            content: const Text(
-              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.'
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Please Put Valid DSR Date.'),
+                content: const Text(
+                  'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      // Navigate to exception entry
+                    },
+                    child: const Text('Go to Exception Entry'),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  // Navigate to exception entry
-                },
-                child: const Text('Go to Exception Entry'),
-              ),
-            ],
-          ),
         );
         return;
       }
@@ -145,21 +239,12 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
     }
   }
 
-  Future<void> _pickDate(TextEditingController controller) async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: now,
-      firstDate: DateTime(1900),
-      lastDate: DateTime(now.year + 5),
-    );
-    if (picked != null) {
-      controller.text = DateFormat('yyyy-MM-dd').format(picked);
-    }
-  }
+  // Removed unused generic date picker
 
   Future<void> _pickImage(int index) async {
-    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final pickedFile = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+    );
     if (pickedFile != null) {
       setState(() => _selectedImages[index] = File(pickedFile.path));
     }
@@ -168,56 +253,84 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
   void _showImageDialog(File imageFile) {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.6,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              fit: BoxFit.contain,
-              image: FileImage(imageFile),
+      builder:
+          (_) => Dialog(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  fit: BoxFit.contain,
+                  image: FileImage(imageFile),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 
   void _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
-    
-    final dsrData = {
-      'ActivityType': 'Phone Call with Unregistered Purchasers',
-      'SubmissionDate': _submissionDateController.text,
-      'ReportDate': _reportDateController.text,
-      'CreateId': '2948',
-      'UpdateId': '2948',
-      'AreaCode': _areaCode ?? '',
-      'Purchaser': _purchaserType ?? '',
-      'PurchaserCode': '',
-      'dsrRem01': _mobileController.text,
-      'dsrRem02': _partyNameController.text,
-      'dsrRem03': _counterType ?? '',
-      'dsrRem04': _pinCodeController.text,
-      'dsrRem05': _districtController.text,
-      'dsrRem06': _visitedCityController.text,
-      'dsrRem07': _nameDesigController.text,
-      'dsrRem08': _topicsController.text,
-      'DsrParam': '13',
-      'DocuNumb': _processItem == 'Update' ? null : null,
-      'ProcessType': _processItem == 'Update' ? 'U' : 'A',
-      'Images': _selectedImages.map((file) => file?.path).toList(),
-    };
-    
+
+    late DateTime submissionDate;
+    late DateTime reportDate;
     try {
-      await submitDsrEntry(dsrData);
+      submissionDate = DateTime.parse(_submissionDateController.text.trim());
+      reportDate = DateTime.parse(_reportDateController.text.trim());
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid date'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final loginId = await SessionManager.getLoginId() ?? '';
+    final dto = DsrEntryDto(
+      activityType: 'Phone Call with Unregistered Purchasers',
+      submissionDate: submissionDate,
+      reportDate: reportDate,
+      createId: loginId,
+      dsrParam: '61',
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      docuNumb: _processItem == 'Update' ? null : null,
+      dsrRem01: _mobileController.text,
+      dsrRem02: _partyNameController.text,
+      dsrRem03: _counterType ?? '',
+      dsrRem04: _pinCodeController.text,
+      dsrRem05: _districtController.text,
+      dsrRem06: _visitedCityController.text,
+      dsrRem07: _nameDesigController.text,
+      dsrRem08: _topicsController.text,
+      areaCode: _areaCode ?? '',
+      purchaser: _purchaserType ?? '',
+      purchaserCode: '',
+    );
+    bool success = false;
+    try {
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
+      }
+      success = true;
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+    }
+    if (!mounted) return;
+    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(exitAfter
-              ? 'Submitted successfully. Exiting...'
-              : 'Submitted successfully. Ready for new entry.'),
+          content: Text(
+            _processItem == 'Update'
+                ? 'Updated successfully.'
+                : 'Submitted successfully.',
+          ),
           backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
         ),
       );
       if (exitAfter) {
@@ -225,14 +338,6 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
       } else {
         _clearForm();
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Submission failed: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     }
   }
 
@@ -257,21 +362,7 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
     _setSubmissionDateToToday();
   }
 
-  Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    final url = Uri.parse('http://10.4.64.23/api/DsrTry');
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(dsrData),
-    );
-    print('Status: ${response.statusCode}');
-    print('Body: ${response.body}');
-    if (response.statusCode == 201) {
-      print('✅ Data inserted successfully!');
-    } else {
-      print('❌ Data NOT inserted! Error: ${response.body}');
-    }
-  }
+  // Removed submit helper (handled by DsrApiService)
 
   @override
   Widget build(BuildContext context) {
@@ -291,10 +382,11 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DsrEntry()),
-          ),
+          onPressed:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DsrEntry()),
+              ),
         ),
         actions: [
           IconButton(
@@ -381,12 +473,7 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
                   // Location Information Section
                   _buildSectionTitle('Location Information'),
                   const SizedBox(height: 8),
-                  _buildDropdownField(
-                    'Area Code',
-                    _areaCode,
-                    _areaCodes,
-                    (val) => setState(() => _areaCode = val),
-                  ),
+                  _buildAreaCodeDropdown(),
                   const SizedBox(height: 16),
                   _buildTextField(
                     'Mobile No',
@@ -394,12 +481,7 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
                     keyboardType: TextInputType.phone,
                   ),
                   const SizedBox(height: 16),
-                  _buildDropdownField(
-                    'Purchaser / Retailer',
-                    _purchaserType,
-                    _purchaserTypes,
-                    (val) => setState(() => _purchaserType = val),
-                  ),
+                  _buildPurchaserDropdown(),
                   const SizedBox(height: 16),
                   _buildTextField(
                     'Party Name',
@@ -433,15 +515,9 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _buildTextField(
-                    'District',
-                    _districtController,
-                  ),
+                  _buildTextField('District', _districtController),
                   const SizedBox(height: 16),
-                  _buildTextField(
-                    'Visited City',
-                    _visitedCityController,
-                  ),
+                  _buildTextField('Visited City', _visitedCityController),
                   const SizedBox(height: 24),
                   // Meeting Details Section
                   _buildSectionTitle('Meeting Details'),
@@ -531,6 +607,104 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
     );
   }
 
+  Widget _buildAreaCodeDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child:
+              _loadingAreaCodes
+                  ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                  : DropdownButton<String>(
+                    isExpanded: true,
+                    value: _areaCode,
+                    underline: Container(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    items:
+                        _areaCodes
+                            .map(
+                              (m) => DropdownMenuItem(
+                                value: m['code'],
+                                child: Text(m['name'] ?? m['code']!),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (v) {
+                      setState(() => _areaCode = v);
+                    },
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Colors.grey,
+                    ),
+                  ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPurchaserDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child:
+              _loadingPurchasers
+                  ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                  : DropdownButton<String>(
+                    isExpanded: true,
+                    value: _purchaserType,
+                    underline: Container(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    items:
+                        _purchasers
+                            .map(
+                              (m) => DropdownMenuItem(
+                                value: m['code'],
+                                child: Text(m['name'] ?? m['code']!),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (v) {
+                      setState(() => _purchaserType = v);
+                    },
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Colors.grey,
+                    ),
+                  ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildProcessTypeDropdown() {
     return DropdownButtonFormField<String>(
       value: _processItem,
@@ -565,13 +739,16 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
         hintText: 'Select process type',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _processdropdownItems
-          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
-          .toList(),
+      items:
+          _processdropdownItems
+              .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+              .toList(),
       onChanged: (val) => setState(() => _processItem = val),
-      validator: (v) => v == null || v == 'Select'
-          ? 'Please select a Process Type'
-          : null,
+      validator:
+          (v) =>
+              v == null || v == 'Select'
+                  ? 'Please select a Process Type'
+                  : null,
     );
   }
 
@@ -627,12 +804,14 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
             ),
             hintText: 'Select date',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-            suffixIcon: readOnly
-                ? const Icon(Icons.lock, color: Colors.grey)
-                : const Icon(Icons.calendar_today, color: Colors.blue),
+            suffixIcon:
+                readOnly
+                    ? const Icon(Icons.lock, color: Colors.grey)
+                    : const Icon(Icons.calendar_today, color: Colors.blue),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -666,21 +845,16 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
             isExpanded: true,
             value: value,
             underline: Container(),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 4,
-            ),
-            items: items
-                .map((item) => DropdownMenuItem(
-                      value: item,
-                      child: Text(item),
-                    ))
-                .toList(),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            items:
+                items
+                    .map(
+                      (item) =>
+                          DropdownMenuItem(value: item, child: Text(item)),
+                    )
+                    .toList(),
             onChanged: onChanged,
-            icon: const Icon(
-              Icons.keyboard_arrow_down,
-              color: Colors.grey,
-            ),
+            icon: const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
           ),
         ),
       ],
@@ -740,8 +914,9 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
             hintText: 'Enter $label',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -788,7 +963,11 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 16,
+                          ),
                           SizedBox(width: 4),
                           Text(
                             'Uploaded',
@@ -851,7 +1030,11 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.visibility, size: 18, color: Colors.green),
+                            Icon(
+                              Icons.visibility,
+                              size: 18,
+                              color: Colors.green,
+                            ),
                             SizedBox(width: 8),
                             Text(
                               'View',
@@ -901,54 +1084,55 @@ class _PhoneCallWithUnregisterdPurchaserState extends State<PhoneCallWithUnregis
   void _showHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Phone Call with Unregistered Purchasers Help',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Fill in all the required fields to record your phone call with unregistered purchasers. '
-                'Make sure to select the correct process type (Add/Update) and provide accurate location information.',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text(
-                    'Got it',
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Phone Call with Unregistered Purchasers Help',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all the required fields to record your phone call with unregistered purchasers. '
+                    'Make sure to select the correct process type (Add/Update) and provide accurate location information.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }

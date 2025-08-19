@@ -1,25 +1,16 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:learning2/core/services/session_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+// Refactored to use centralized DsrApiService (no direct http/json here).
 import 'package:geolocator/geolocator.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
+import '../../../../core/services/dsr_api_service.dart';
 
-class ApiConstants {
-  static const String baseUrl = 'http://10.4.64.23/api';
-  static const String getProcessTypes = '/DsrTry/getProcessTypes';
-  static const String getProductOptions = '/DsrTry/getProductOptions';
-  static const String getQualityOptions = '/DsrTry/getQualityOptions';
-  static const String getStatusOptions = '/DsrTry/getStatusOptions';
-  static const String dsrTry = '/DsrTry';
-  static String url(String endpoint) => 'baseUrlendpoint'
-      .replaceAll('baseUrl', baseUrl)
-      .replaceAll('endpoint', endpoint);
-}
+// Removed ApiConstants (deprecated after service abstraction).
 
 class CheckSamplingAtSite extends StatefulWidget {
   const CheckSamplingAtSite({super.key});
@@ -39,8 +30,8 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
 
   // Process type dropdown state
   String? _processItem = 'Select';
-  List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
-  String? _processTypeError;
+  List<String> _processdropdownItems = const ['Select'];
+  // Removed unused _processTypeError.
 
   // Document-number dropdown state
   bool _loadingDocs = false;
@@ -75,7 +66,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
 
   // Document number
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
+  // Removed unused _documentNumber (updates use dropdown only).
 
   // Dynamic field config for activity type
   final Map<String, List<Map<String, String>>> activityFieldConfig = {
@@ -177,24 +168,25 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
   }
 
   Future<void> _loadInitialDocumentNumber() async {
-    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(
+    await DocumentNumberStorage.loadDocumentNumber(
       DocumentNumberKeys.checkSamplingSite,
-    );
-    if (savedDocNumber != null) {
-      setState(() {
-        _documentNumber = savedDocNumber;
-      });
-    }
+    ); // kept for parity; value unused after refactor
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _processTypeError = null;
-    });
-    setState(() {
-      _processdropdownItems = ['Select', 'Add', 'Update'];
-      _processItem = 'Select';
-    });
+    try {
+      final list = await DsrApiService.getProcessTypes();
+      final normalized = list.isNotEmpty ? list : ['Add', 'Update'];
+      setState(() {
+        _processdropdownItems = ['Select', ...normalized];
+        _processItem = 'Select';
+      });
+    } catch (_) {
+      setState(() {
+        _processdropdownItems = ['Select', 'Add', 'Update'];
+        _processItem = 'Select';
+      });
+    }
   }
 
   Future<void> _fetchDocumentNumbers() async {
@@ -203,167 +195,93 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=52',
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers =
-              data
-                  .map((e) {
-                    return (e['DocuNumb'] ??
-                            e['docuNumb'] ??
-                            e['DocumentNumber'] ??
-                            e['documentNumber'] ??
-                            '')
-                        .toString();
-                  })
-                  .where((s) => s.isNotEmpty)
-                  .toList();
-        });
-      }
+      final docs = await DsrApiService.getDocumentNumbers(
+        '31',
+      ); // corrected dsrParam
+      setState(() => _documentNumbers = docs);
     } catch (_) {
-      // ignore errors
+      // swallow
     } finally {
-      setState(() {
-        _loadingDocs = false;
-      });
+      if (mounted) setState(() => _loadingDocs = false);
     }
   }
 
-  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
-    );
+  Future<void> _autofill(String docuNumb) async {
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
-        final config = activityFieldConfig[_selectedActivityType] ?? [];
-        for (final field in config) {
-          if (field['key'] == 'productName') {
-            setState(() {
-              _selectedProductName = data[field['rem']] ?? 'Select';
-            });
-          } else if (field['key'] == 'quality') {
-            setState(() {
-              _qualityItem = data[field['rem']] ?? 'Select';
-            });
-          } else if (field['key'] == 'status') {
-            setState(() {
-              _statusItem = data[field['rem']] ?? 'Select';
-            });
-          } else {
-            _controllers[field['key']!]?.text = data[field['rem']] ?? '';
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
+      final config = activityFieldConfig[_selectedActivityType] ?? [];
+      for (final field in config) {
+        final remKey = field['rem'];
+        final value = (data[remKey] ?? '').toString();
+        if (field['key'] == 'productName') {
+          if (!_productNames.contains(value) && value.isNotEmpty) {
+            setState(() => _productNames = [..._productNames, value]);
           }
+          _selectedProductName = value.isEmpty ? 'Select' : value;
+        } else if (field['key'] == 'quality') {
+          if (!_qualityOptions.contains(value) && value.isNotEmpty) {
+            setState(() => _qualityOptions = [..._qualityOptions, value]);
+          }
+          _qualityItem = value.isEmpty ? 'Select' : value;
+        } else if (field['key'] == 'status') {
+          if (!_statusOptions.contains(value) && value.isNotEmpty) {
+            setState(() => _statusOptions = [..._statusOptions, value]);
+          }
+          _statusItem = value.isEmpty ? 'Select' : value;
+        } else {
+          _controllers[field['key']!]?.text = value;
         }
-        setState(() {
-          _submissionDateController.text =
-              data['SubmissionDate']?.toString().substring(0, 10) ?? '';
-          _reportDateController.text =
-              data['ReportDate']?.toString().substring(0, 10) ?? '';
-        });
       }
-    } catch (_) {}
+      final sub =
+          (data['SubmissionDate'] ?? data['submissionDate'] ?? '').toString();
+      final rep = (data['ReportDate'] ?? data['reportDate'] ?? '').toString();
+      setState(() {
+        if (sub.isNotEmpty)
+          _submissionDateController.text = sub.substring(0, 10);
+        if (rep.isNotEmpty) _reportDateController.text = rep.substring(0, 10);
+      });
+    } catch (_) {
+      // ignore
+    }
   }
 
   Future<void> _fetchProductNames() async {
-    setState(() {
-      _isLoadingProductNames = true;
-    });
+    setState(() => _isLoadingProductNames = true);
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/getProductOptions',
-      );
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final productNames =
-            (data is List ? data : <String>[])
-                .map((e) => e.toString())
-                .toList();
-        setState(() {
-          _productNames = ['Select', ...productNames];
-          _isLoadingProductNames = false;
-        });
-      } else {
-        setState(() {
-          _productNames = ['Select'];
-          _isLoadingProductNames = false;
-        });
-      }
-    } catch (e) {
+      final list = await DsrApiService.getProductOptions();
       setState(() {
-        _productNames = ['Select'];
-        _isLoadingProductNames = false;
+        _productNames = ['Select', ...list];
       });
+    } catch (_) {
+      setState(() => _productNames = ['Select']);
+    } finally {
+      if (mounted) setState(() => _isLoadingProductNames = false);
     }
   }
 
   Future<void> _fetchQualityOptions() async {
-    setState(() {
-      _isLoadingQualityOptions = true;
-    });
+    setState(() => _isLoadingQualityOptions = true);
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/getQualityOptions',
-      );
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final qualityOptions =
-            (data is List ? data : <String>[])
-                .map((e) => e.toString())
-                .toList();
-        setState(() {
-          _qualityOptions = ['Select', ...qualityOptions];
-          _isLoadingQualityOptions = false;
-        });
-      } else {
-        setState(() {
-          _qualityOptions = ['Select'];
-          _isLoadingQualityOptions = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _qualityOptions = ['Select'];
-        _isLoadingQualityOptions = false;
-      });
+      final list = await DsrApiService.getQualityOptions();
+      setState(() => _qualityOptions = ['Select', ...list]);
+    } catch (_) {
+      setState(() => _qualityOptions = ['Select']);
+    } finally {
+      if (mounted) setState(() => _isLoadingQualityOptions = false);
     }
   }
 
   Future<void> _fetchStatusOptions() async {
-    setState(() {
-      _isLoadingStatusOptions = true;
-    });
+    setState(() => _isLoadingStatusOptions = true);
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getStatusOptions');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final statusOptions =
-            (data is List ? data : <String>[])
-                .map((e) => e.toString())
-                .toList();
-        setState(() {
-          _statusOptions = ['Select', ...statusOptions];
-          _isLoadingStatusOptions = false;
-        });
-      } else {
-        setState(() {
-          _statusOptions = ['Select'];
-          _isLoadingStatusOptions = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _statusOptions = ['Select'];
-        _isLoadingStatusOptions = false;
-      });
+      final list = await DsrApiService.getStatusOptions();
+      setState(() => _statusOptions = ['Select', ...list]);
+    } catch (_) {
+      setState(() => _statusOptions = ['Select']);
+    } finally {
+      if (mounted) setState(() => _isLoadingStatusOptions = false);
     }
   }
 
@@ -476,95 +394,122 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
 
-    final dsrData = <String, dynamic>{
-      'ActivityType': _selectedActivityType,
-      'SubmissionDate': _submissionDateController.text,
-      'ReportDate': _reportDateController.text,
-      'CreateId': '2948',
-      'UpdateId': '2948',
-      'DsrParam': '52',
-      'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
-      'ProcessType': _processItem == 'Update' ? 'U' : 'A',
-      'latitude': _currentPosition?.latitude.toString() ?? '',
-      'longitude': _currentPosition?.longitude.toString() ?? '',
-    };
+    // Build DTO using centralized model
+    late DateTime submissionDate;
+    late DateTime reportDate;
+    try {
+      submissionDate = DateTime.parse(_submissionDateController.text.trim());
+      reportDate = DateTime.parse(_reportDateController.text.trim());
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid date'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     final config = activityFieldConfig[_selectedActivityType] ?? [];
+    String rem01 = '',
+        rem02 = '',
+        rem03 = '',
+        rem04 = '',
+        rem05 = '',
+        rem06 = '',
+        rem07 = '',
+        rem08 = '';
     for (final field in config) {
-      if (field['key'] == 'productName') {
-        dsrData[field['rem']!] = _selectedProductName ?? '';
-      } else if (field['key'] == 'quality') {
-        dsrData[field['rem']!] = _qualityItem ?? '';
-      } else if (field['key'] == 'status') {
-        dsrData[field['rem']!] = _statusItem ?? '';
-      } else {
-        dsrData[field['rem']!] = _controllers[field['key']!]?.text ?? '';
+      final key = field['key'];
+      final rem = field['rem'];
+      String value;
+      if (key == 'productName')
+        value = _selectedProductName ?? '';
+      else if (key == 'quality')
+        value = _qualityItem ?? '';
+      else if (key == 'status')
+        value = _statusItem ?? '';
+      else
+        value = _controllers[key!]!.text;
+      switch (rem) {
+        case 'dsrRem01':
+          rem01 = value;
+          break;
+        case 'dsrRem02':
+          rem02 = value;
+          break;
+        case 'dsrRem03':
+          rem03 = value;
+          break;
+        case 'dsrRem04':
+          rem04 = value;
+          break;
+        case 'dsrRem05':
+          rem05 = value;
+          break;
+        case 'dsrRem06':
+          rem06 = value;
+          break;
+        case 'dsrRem07':
+          rem07 = value;
+          break;
+        case 'dsrRem08':
+          rem08 = value;
+          break;
       }
     }
 
-    final imageData = <String, dynamic>{};
-    for (int i = 0; i < _selectedImages.length; i++) {
-      final file = _selectedImages[i];
-      if (file != null) {
-        final imageBytes = await file.readAsBytes();
-        final base64Image =
-            'data:image/jpeg;base64,${base64Encode(imageBytes)}';
-        imageData['image${i + 1}'] = base64Image;
-      }
-    }
-    dsrData['Images'] = imageData;
+    final loginId = await SessionManager.getLoginId() ?? '';
+    final dto = DsrEntryDto(
+      activityType: _selectedActivityType,
+      submissionDate: submissionDate,
+      reportDate: reportDate,
+      createId: loginId,
+      dsrParam: '31', // corrected param
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
+      dsrRem01: rem01,
+      dsrRem02: rem02,
+      dsrRem03: rem03,
+      dsrRem04: rem04,
+      dsrRem05: rem05,
+      dsrRem06: rem06,
+      dsrRem07: rem07,
+      dsrRem08: rem08,
+      latitude: _currentPosition?.latitude.toString() ?? '',
+      longitude: _currentPosition?.longitude.toString() ?? '',
+    );
 
+    bool success = false;
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}',
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
+      }
+      success = true;
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
-
-      final resp =
-          _processItem == 'Update'
-              ? await http.put(
-                url,
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode(dsrData),
-              )
-              : await http.post(
-                url,
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode(dsrData),
-              );
-
-      final success =
-          (_processItem == 'Update' && resp.statusCode == 204) ||
-          (_processItem != 'Update' && resp.statusCode == 201);
-
+    }
+    if (!mounted) return;
+    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            success
-                ? exitAfter
-                    ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                    : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-                : 'Error: ${resp.body}',
+            _processItem == 'Update'
+                ? 'Updated successfully.'
+                : 'Submitted successfully.',
           ),
-          backgroundColor: success ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.green,
         ),
       );
-
-      if (success) {
-        if (exitAfter) {
-          Navigator.of(context).pop();
-        } else {
-          _clearForm();
-        }
+      if (exitAfter) {
+        Navigator.of(context).pop();
+      } else {
+        _clearForm();
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Exception: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     }
   }
 
@@ -588,45 +533,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
     _formKey.currentState?.reset();
   }
 
-  Future<String?> _fetchDocumentNumberFromServer() async {
-    try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/generateDocumentNumber',
-      );
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode('KKR'), // Hardcoded to KKR
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        String? documentNumber;
-        if (data is Map<String, dynamic>) {
-          documentNumber =
-              data['documentNumber'] ??
-              data['DocumentNumber'] ??
-              data['docNumber'] ??
-              data['DocNumber'];
-        } else if (data is String) {
-          documentNumber = data;
-        }
-
-        if (documentNumber != null) {
-          await DocumentNumberStorage.saveDocumentNumber(
-            DocumentNumberKeys.checkSamplingSite,
-            documentNumber,
-          );
-        }
-
-        return documentNumber;
-      } else {
-        return null;
-      }
-    } catch (e) {
-      return null;
-    }
-  }
+  // Removed server-side document number generation (handled elsewhere if needed).
 
   @override
   Widget build(BuildContext context) {
@@ -914,7 +821,7 @@ class _CheckSamplingAtSiteState extends State<CheckSamplingAtSite>
               .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
-        if (v != null) await _fetchAndPopulateDetails(v);
+        if (v != null) await _autofill(v);
       },
       validator: (v) => v == null ? 'Required' : null,
     );

@@ -3,8 +3,62 @@ import 'package:learning2/core/theme/app_theme.dart';
 import 'package:learning2/features/dashboard/presentation/pages/splash_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  // Data loaded from SharedPreferences (written by login_screen)
+  String? _emplName;
+  String? _userId;
+  String? _areaCode;
+  List<String> _roles = [];
+
+  // Controllers for editable fields
+  final TextEditingController _usernameController = TextEditingController();
+
+  // Dropdown selections (removed for simplified profile)
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('userID');
+    final emplName = prefs.getString('emplName');
+    final areaCode = prefs.getString('areaCode');
+    final roles = prefs.getStringList('roles') ?? <String>[];
+
+    // Optional persisted profile fields were removed for simplified profile
+    // final gender = prefs.getString('gender');
+    // final report = prefs.getString('selectedReport');
+
+    if (!mounted) return;
+    setState(() {
+      _userId = userId;
+      _emplName = emplName;
+      _areaCode = areaCode;
+      _roles = roles;
+
+      _usernameController.text = _emplName ?? _userId ?? '';
+      // _selectedGender = gender;
+      // _selectedReport = report;
+    });
+  }
+
+  // Removed persistence helpers for dropdowns
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,27 +77,7 @@ class ProfilePage extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildSectionTitle('Account Info'),
-                      const SizedBox(height: 14),
-                      _buildInfoCard([
-                        _buildTextField('Username*', Icons.person_outline),
-                        _buildTextField('Email Address*', Icons.email_outlined),
-                        _buildTextField('Phone Number*', Icons.phone_outlined),
-                      ]),
                       const SizedBox(height: 22),
-                      _buildSectionTitle('Dashboard Report'),
-                      const SizedBox(height: 14),
-                      _buildInfoCard([
-                        _buildDropdownField('Select Report*', Icons.assessment_outlined),
-                      ]),
-                      const SizedBox(height: 22),
-                      _buildSectionTitle('Personal Info'),
-                      const SizedBox(height: 14),
-                      _buildInfoCard([
-                        _buildDropdownField('Gender*', Icons.person_outline),
-                        _buildTextField('Address*', Icons.location_on_outlined),
-                      ]),
-                      const SizedBox(height: 32),
                       _buildLogoutButton(context),
                       const SizedBox(height: 24),
                     ],
@@ -87,9 +121,14 @@ class ProfilePage extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: const CircleAvatar(
+                  child: CircleAvatar(
                     radius: 48,
-                    backgroundImage: AssetImage('assets/avatar.png'),
+                    backgroundColor: Colors.white,
+                    child: const Icon(
+                      Icons.person,
+                      color: SparshTheme.primaryBlue,
+                      size: 48,
+                    ),
                   ),
                 ),
                 Positioned(
@@ -118,9 +157,11 @@ class ProfilePage extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Magan',
-              style: TextStyle(
+            Text(
+              _emplName?.isNotEmpty == true
+                  ? _emplName!
+                  : (_userId?.isNotEmpty == true ? _userId! : 'User'),
+              style: const TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
@@ -134,9 +175,9 @@ class ProfilePage extends StatelessWidget {
                 color: Colors.white.withOpacity(0.23),
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: const Text(
-                'ID S2948',
-                style: TextStyle(
+              child: Text(
+                'ID ${_userId ?? '-'}',
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
@@ -144,9 +185,11 @@ class ProfilePage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'IT Department',
-              style: TextStyle(
+            Text(
+              _areaCode != null && _areaCode!.isNotEmpty
+                  ? 'Area $_areaCode'
+                  : (_roles.isNotEmpty ? _roles.join(', ') : 'Department'),
+              style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
@@ -180,8 +223,14 @@ class ProfilePage extends StatelessWidget {
               alignment: WrapAlignment.center,
               children: [
                 _buildQuickAction(icon: Icons.edit_outlined, label: 'Edit'),
-                _buildQuickAction(icon: Icons.settings_outlined, label: 'Settings'),
-                _buildQuickAction(icon: Icons.notifications_outlined, label: 'Alerts'),
+                _buildQuickAction(
+                  icon: Icons.settings_outlined,
+                  label: 'Settings',
+                ),
+                _buildQuickAction(
+                  icon: Icons.notifications_outlined,
+                  label: 'Alerts',
+                ),
               ],
             ),
           ],
@@ -190,114 +239,7 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: Color(0xFF1976D2),
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(List<Widget> children) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 14),
-        child: Column(children: children),
-      ),
-    );
-  }
-
-  Widget _buildTextField(String label, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: TextField(
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(icon, color: const Color(0xFF1976D2)),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFF1976D2), width: 2),
-          ),
-          filled: true,
-          fillColor: const Color(0xFFF8F9FA),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDropdownField(String label, IconData icon) {
-    List<DropdownMenuItem<String>> items = [];
-
-    if (label == 'Gender*') {
-      items = const [
-        DropdownMenuItem(value: 'Male', child: Text('Male')),
-        DropdownMenuItem(value: 'Female', child: Text('Female')),
-        DropdownMenuItem(value: 'Other', child: Text('Other')),
-      ];
-    } else if (label == 'Select Report*') {
-      items = const [
-        DropdownMenuItem(value: 'Sales Summary', child: Text('Sales Summary')),
-        DropdownMenuItem(value: 'DSR VIST', child: Text('DSR VIST')),
-        DropdownMenuItem(value: 'Token Scan', child: Text('Token Scan')),
-      ];
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: DropdownButtonFormField<String>(
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(icon, color: const Color(0xFF1976D2)),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFF1976D2), width: 2),
-          ),
-          filled: true,
-          fillColor: const Color(0xFFF8F9FA),
-        ),
-        items: items,
-        onChanged: (value) {},
-        icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF1976D2)),
-        dropdownColor: Colors.white,
-      ),
-    );
-  }
+  // Removed unused helper methods to keep file clean
 
   Widget _buildLogoutButton(context) {
     return SizedBox(
@@ -306,35 +248,36 @@ class ProfilePage extends StatelessWidget {
         onPressed: () async {
           final bool? confirmLogout = await showDialog<bool>(
             context: context,
-            builder: (context) => AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: const Text(
-                'Logout',
-                style: TextStyle(
-                  color: Color(0xFF1976D2),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: const Text('Are you sure you want to logout?'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: Color(0xFF757575)),
+            builder:
+                (context) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text(
+                  title: const Text(
                     'Logout',
-                    style: TextStyle(color: Color(0xFF1976D2)),
+                    style: TextStyle(
+                      color: Color(0xFF1976D2),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
+                  content: const Text('Are you sure you want to logout?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(color: Color(0xFF757575)),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text(
+                        'Logout',
+                        style: TextStyle(color: Color(0xFF1976D2)),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
           );
 
           if (confirmLogout == true) {

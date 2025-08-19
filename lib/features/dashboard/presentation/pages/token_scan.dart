@@ -356,7 +356,7 @@ class _TokenScanPageState extends State<TokenScanPage>
             children: [
               // Enhanced Scanner View with 3D Effects
               Container(
-                height: 320,
+                height: 270,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
@@ -623,63 +623,6 @@ class _TokenScanPageState extends State<TokenScanPage>
                           ),
                         ),
                       ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Scan Instructions with 3D Effect
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.blue.shade700, Colors.blue.shade500],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blue.withOpacity(0.3),
-                      blurRadius: 10,
-                      offset: const Offset(0, 5),
-                    ),
-                    BoxShadow(
-                      color: Colors.white.withOpacity(0.7),
-                      blurRadius: 10,
-                      offset: const Offset(-3, -3),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.qr_code_scanner,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Scan a token QR code',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),

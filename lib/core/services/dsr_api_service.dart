@@ -143,6 +143,16 @@ class DsrApiService {
     return null;
   }
 
+  // New unified autofill API (master + details) provided by backend (see controller code).
+  // Returns a map with keys matching server DsrEntryDto (ActivityType, SubmissionDate, ReportDate, etc.).
+  static Future<Map<String, dynamic>?> autofill(String docuNumb) async {
+    final data = await _get(
+      '/autofill?docuNumb=${Uri.encodeComponent(docuNumb)}',
+    );
+    if (data is Map<String, dynamic>) return data;
+    return null;
+  }
+
   static Future<String?> generateDocumentNumber(String areaCode) async {
     final data = await _post('/generateDocumentNumber', areaCode, expect: 200);
     if (data is Map && data['DocumentNumber'] != null)

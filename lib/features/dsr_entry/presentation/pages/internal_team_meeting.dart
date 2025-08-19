@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:learning2/core/services/session_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:http/http.dart'
+    as http; // retained only if still needed for legacy pieces
+import 'dart:convert'; // retained
+import '../../../../core/services/dsr_api_service.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
@@ -20,38 +23,39 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
     with SingleTickerProviderStateMixin {
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
-  
+
   final _formKey = GlobalKey<FormState>();
-  
+
   // Geolocation
   Position? _currentPosition;
-  
+
   // Process type dropdown state
   String? _processItem = 'Select';
   List<String> _processdropdownItems = ['Select'];
-  bool _isLoadingProcessTypes = true;
-  String? _processTypeError;
-  
+  // Removed loading/error flags (centralized minimal UX); could reintroduce if showing spinners.
+
   // Document-number dropdown state
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
-  
+  bool _showGlobalLoader = false; // unified overlay loader flag
+
   // Controllers
-  final TextEditingController _submissionDateController = TextEditingController();
+  final TextEditingController _submissionDateController =
+      TextEditingController();
   final TextEditingController _reportDateController = TextEditingController();
   final TextEditingController _meetwithController = TextEditingController();
   final TextEditingController _meetdiscController = TextEditingController();
   final TextEditingController _learnnngController = TextEditingController();
-  
+
   // Image upload
   final List<int> _uploadRows = [0];
   final ImagePicker _picker = ImagePicker();
   final List<List<String>> _selectedImagePaths = [[]]; // multiple per row
-  
+
   // Document number
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
+  // Removed persisted _documentNumber variable (unused after refactor)
 
   @override
   void initState() {
@@ -65,7 +69,7 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
       curve: Curves.easeOut,
     );
     _fadeController.forward();
-    
+
     _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
@@ -98,7 +102,9 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
       if (permission == LocationPermission.deniedForever) {
         throw Exception('Location permissions permanently denied.');
       }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       setState(() {
         _currentPosition = pos;
       });
@@ -109,60 +115,25 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
 
   // Load document number when screen initializes
   Future<void> _loadInitialDocumentNumber() async {
-    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(DocumentNumberKeys.internalTeamMeeting);
+    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(
+      DocumentNumberKeys.internalTeamMeeting,
+    );
     if (savedDocNumber != null) {
-      setState(() {
-        _documentNumber = savedDocNumber;
-      });
+      // persisted value retained if needed in future
     }
   }
 
   // Fetch process types from backend
   Future<void> _fetchProcessTypes() async {
-    setState(() { 
-      _isLoadingProcessTypes = true; 
-      _processTypeError = null; 
-    });
+    // no spinner state maintained after refactor
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getProcessTypes');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        List processTypesList = [];
-        if (data is List) {
-          processTypesList = data;
-        } else if (data is Map &&
-            (data['ProcessTypes'] != null || data['processTypes'] != null)) {
-          processTypesList =
-              (data['ProcessTypes'] ?? data['processTypes']) as List;
-        }
-        final processTypes = processTypesList
-            .map<String>((type) {
-              if (type is Map) {
-                return type['Description']?.toString() ??
-                    type['description']?.toString() ??
-                    '';
-              } else {
-                return type.toString();
-              }
-            })
-            .where((desc) => desc.isNotEmpty)
-            .toList();
-        setState(() {
-          _processdropdownItems = ['Select', ...processTypes];
-          _processItem = 'Select';
-          _isLoadingProcessTypes = false;
-        });
-      } else {
-        throw Exception('Failed to load process types.');
-      }
-    } catch (e) {
+      final list = await DsrApiService.getProcessTypes();
       setState(() {
-        _processdropdownItems = ['Select'];
+        _processdropdownItems = ['Select', ...list];
         _processItem = 'Select';
-        _isLoadingProcessTypes = false;
-        _processTypeError = 'Failed to load process types.';
       });
+    } catch (e) {
+      /* ignore */
     }
   }
 
@@ -170,56 +141,50 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
   Future<void> _fetchDocumentNumbers() async {
     setState(() {
       _loadingDocs = true;
+      _showGlobalLoader = true;
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=52' // Use correct param for this activity
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers = data
-            .map((e) {
-              return (e['DocuNumb']
-                   ?? e['docuNumb']
-                   ?? e['DocumentNumber']
-                   ?? e['documentNumber']
-                   ?? '').toString();
-            })
-            .where((s) => s.isNotEmpty)
-            .toList();
-        });
-      }
+      final nums = await DsrApiService.getDocumentNumbers('52');
+      setState(() {
+        _documentNumbers = nums;
+      });
     } catch (_) {
-      // ignore errors
     } finally {
-      setState(() { _loadingDocs = false; });
+      setState(() {
+        _loadingDocs = false;
+      });
     }
+    if (mounted) setState(() => _showGlobalLoader = false);
   }
 
   // Fetch details for a document number and populate fields
   Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse('http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
+    setState(() => _showGlobalLoader = true);
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
-        setState(() {
-          _meetwithController.text = data['dsrRem01'] ?? '';
-          _meetdiscController.text = data['dsrRem02'] ?? '';
-          _learnnngController.text = data['dsrRem03'] ?? '';
-          if (data['SubmissionDate'] != null) {
-            _submissionDateController.text = data['SubmissionDate'].toString().substring(0, 10);
-          }
-          if (data['ReportDate'] != null) {
-            _reportDateController.text = data['ReportDate'].toString().substring(0, 10);
-          }
-        });
-      }
-    } catch (_) {}
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
+      setState(() {
+        _meetwithController.text = data['dsrRem01']?.toString() ?? '';
+        _meetdiscController.text = data['dsrRem02']?.toString() ?? '';
+        _learnnngController.text = data['dsrRem03']?.toString() ?? '';
+        _submissionDateController.text = (data['SubmissionDate'] ??
+                data['submissionDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+        _reportDateController.text = (data['ReportDate'] ??
+                data['reportDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+      });
+    } catch (e) {
+      debugPrint('Autofill error: $e');
+    } finally {
+      if (mounted) setState(() => _showGlobalLoader = false);
+    }
   }
 
   void _setSubmissionDateToToday() {
@@ -240,27 +205,30 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
       if (picked.isBefore(threeDaysAgo)) {
         showDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Please Put Valid DSR Date.'),
-            content: const Text(
-              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.'
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Please Put Valid DSR Date.'),
+                content: const Text(
+                  'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const DsrExceptionEntryPage(),
+                        ),
+                      );
+                    },
+                    child: const Text('Go to Exception Entry'),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const DsrExceptionEntryPage()),
-                  );
-                },
-                child: const Text('Go to Exception Entry'),
-              ),
-            ],
-          ),
         );
         return;
       }
@@ -298,49 +266,56 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
     final paths = _selectedImagePaths[rowIndex];
     if (paths.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No images selected for this row to view.')),
+        const SnackBar(
+          content: Text('No images selected for this row to view.'),
+        ),
       );
       return;
     }
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.6,
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Selected Images',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: paths.length,
-                  itemBuilder: (_, i) => Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Image.file(File(paths[i]), fit: BoxFit.contain),
+      builder:
+          (_) => Dialog(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.height * 0.6,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Selected Images',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: paths.length,
+                      itemBuilder:
+                          (_, i) => Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Image.file(
+                              File(paths[i]),
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: TextButton.styleFrom(foregroundColor: Colors.blue),
+                    child: const Text('Close'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: TextButton.styleFrom(foregroundColor: Colors.blue),
-                child: const Text('Close'),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -348,67 +323,46 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
   Future<void> _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
-    
-    final dsrData = {
-      'ActivityType': 'Internal Team Meetings / Review Meetings',
-      'SubmissionDate': _submissionDateController.text,
-      'ReportDate': _reportDateController.text,
-      'dsrRem01': _meetwithController.text,
-      'dsrRem02': _meetdiscController.text,
-      'dsrRem03': _learnnngController.text,
-      'latitude': _currentPosition?.latitude.toString() ?? '',
-      'longitude': _currentPosition?.longitude.toString() ?? '',
-      'DsrParam': '52',
-      'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
-      'ProcessType': _processItem == 'Update' ? 'U' : 'A',
-      'CreateId': '2948',
-      'UpdateId': '2948',
-    };
-    
+
+    final loginId = await SessionManager.getLoginId() ?? '';
+    final dto = DsrEntryDto(
+      activityType: 'Internal Team Meetings',
+      submissionDate:
+          DateTime.tryParse(_submissionDateController.text) ?? DateTime.now(),
+      reportDate:
+          DateTime.tryParse(_reportDateController.text) ?? DateTime.now(),
+      createId: loginId,
+      dsrParam: '52',
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
+      dsrRem01: _meetwithController.text,
+      dsrRem02: _meetdiscController.text,
+      dsrRem03: _learnnngController.text,
+      latitude: _currentPosition?.latitude.toString() ?? '',
+      longitude: _currentPosition?.longitude.toString() ?? '',
+    );
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}'
-      );
-      final resp = _processItem == 'Update'
-          ? await http.put(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            )
-          : await http.post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            );
-      final success = (_processItem == 'Update' && resp.statusCode == 204) ||
-                      (_processItem != 'Update' && resp.statusCode == 201);
-      
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success
-              ? exitAfter
-                  ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                  : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-              : 'Error: ${resp.body}'),
-          backgroundColor: success ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
+          content: Text(
+            '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully.',
+          ),
+          backgroundColor: Colors.green,
         ),
       );
-      
-      if (success) {
-        if (exitAfter) {
-          Navigator.of(context).pop();
-        } else {
-          _clearForm();
-        }
+      if (exitAfter) {
+        Navigator.of(context).pop();
+      } else {
+        _clearForm();
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Exception: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -455,52 +409,7 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
     }
   }
 
-  Future<String?> _fetchDocumentNumberFromServer() async {
-    try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/generateDocumentNumber');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'areaCode': _processItem == 'Update' ? _selectedDocuNumb : null}),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        String? documentNumber;
-        if (data is Map<String, dynamic>) {
-          documentNumber = data['documentNumber'] ?? data['DocumentNumber'] ?? data['docNumber'] ?? data['DocNumber'];
-        } else if (data is String) {
-          documentNumber = data;
-        }
-        
-        // Save to persistent storage
-        if (documentNumber != null) {
-          await DocumentNumberStorage.saveDocumentNumber(DocumentNumberKeys.internalTeamMeeting, documentNumber);
-        }
-        
-        return documentNumber;
-      } else {
-        return null;
-      }
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // Add a method to reset the form (clear document number)
-  void _resetForm() {
-    setState(() {
-      _documentNumber = null;
-      _documentNumberController.clear();
-      // Clear other form fields as needed
-    });
-    DocumentNumberStorage.clearDocumentNumber(DocumentNumberKeys.internalTeamMeeting); // Clear from persistent storage
-  }
-
-  void _onProcessTypeChanged(String? desc) {
-    setState(() {
-      // Process type change logic
-    });
-  }
+  // Removed unused server document number generation & reset helpers post-refactor.
 
   @override
   Widget build(BuildContext context) {
@@ -520,10 +429,11 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DsrEntry()),
-          ),
+          onPressed:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DsrEntry()),
+              ),
         ),
         actions: [
           IconButton(
@@ -532,168 +442,212 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
           ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header Section
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.blue[100]!),
-                    ),
-                    child: Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: const BoxDecoration(
-                            color: Colors.blue,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.groups,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Internal Team Meeting',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Record details of your internal team meetings',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  // Process Type Section
-                  _buildSectionTitle('Process Type'),
-                  const SizedBox(height: 8),
-                  _buildProcessTypeDropdown(),
-                  const SizedBox(height: 24),
-                  // Document Number (for Update)
-                  if (_processItem == 'Update') ...[
-                    _buildSectionTitle('Document Number'),
-                    const SizedBox(height: 8),
-                    _loadingDocs
-                        ? const Center(child: CircularProgressIndicator())
-                        : _buildDocumentNumberDropdown(),
-                    const SizedBox(height: 24),
-                  ],
-                  // Date Fields Section
-                  _buildSectionTitle('Date Information'),
-                  const SizedBox(height: 8),
-                  _buildDateField(
-                    'Submission Date',
-                    _submissionDateController,
-                    readOnly: true,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDateField(
-                    'Report Date',
-                    _reportDateController,
-                    onTap: _pickReportDate,
-                  ),
-                  const SizedBox(height: 24),
-                  // Meeting Details Section
-                  _buildSectionTitle('Meeting Details'),
-                  const SizedBox(height: 8),
-                  _buildTextField(
-                    'Meeting With Whom',
-                    _meetwithController,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildTextField(
-                    'Meeting Discussion Points',
-                    _meetdiscController,
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildTextField(
-                    'Learnings',
-                    _learnnngController,
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 24),
-                  // Image Upload Section
-                  _buildSectionTitle('Upload Images'),
-                  const SizedBox(height: 8),
-                  ..._buildImageUploadSection(),
-                  const SizedBox(height: 32),
-                  // Submit Buttons
-                  Row(
+      body: Stack(
+        children: [
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _onSubmit(exitAfter: false),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                      // Header Section
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.blue[100]!),
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: const BoxDecoration(
+                                color: Colors.blue,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.groups,
+                                color: Colors.white,
+                                size: 28,
+                              ),
                             ),
-                            elevation: 0,
-                          ),
-                          child: Text(
-                            _processItem == 'Update' ? 'Update & New' : 'Submit & New',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Internal Team Meeting',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Record details of your internal team meetings',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _onSubmit(exitAfter: true),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue[700],
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 32),
+                      // Process Type Section
+                      _buildSectionTitle('Process Type'),
+                      const SizedBox(height: 8),
+                      _buildProcessTypeDropdown(),
+                      const SizedBox(height: 24),
+                      // Document Number (for Update)
+                      if (_processItem == 'Update') ...[
+                        _buildSectionTitle('Document Number'),
+                        const SizedBox(height: 8),
+                        _loadingDocs
+                            ? const Center(child: CircularProgressIndicator())
+                            : _buildDocumentNumberDropdown(),
+                        const SizedBox(height: 24),
+                      ],
+                      // Date Fields Section
+                      _buildSectionTitle('Date Information'),
+                      const SizedBox(height: 8),
+                      _buildDateField(
+                        'Submission Date',
+                        _submissionDateController,
+                        readOnly: true,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildDateField(
+                        'Report Date',
+                        _reportDateController,
+                        onTap: _pickReportDate,
+                      ),
+                      const SizedBox(height: 24),
+                      // Meeting Details Section
+                      _buildSectionTitle('Meeting Details'),
+                      const SizedBox(height: 8),
+                      _buildTextField('Meeting With Whom', _meetwithController),
+                      const SizedBox(height: 16),
+                      _buildTextField(
+                        'Meeting Discussion Points',
+                        _meetdiscController,
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTextField(
+                        'Learnings',
+                        _learnnngController,
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 24),
+                      // Image Upload Section
+                      _buildSectionTitle('Upload Images'),
+                      const SizedBox(height: 8),
+                      ..._buildImageUploadSection(),
+                      const SizedBox(height: 32),
+                      // Submit Buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _onSubmit(exitAfter: false),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: Text(
+                                _processItem == 'Update'
+                                    ? 'Update & New'
+                                    : 'Submit & New',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
-                            elevation: 0,
                           ),
-                          child: Text(
-                            _processItem == 'Update' ? 'Update & Exit' : 'Submit & Exit',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _onSubmit(exitAfter: true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue[700],
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: Text(
+                                _processItem == 'Update'
+                                    ? 'Update & Exit'
+                                    : 'Submit & Exit',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
+          if (_showGlobalLoader)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: SizedBox(
+                    width: 90,
+                    height: 90,
+                    child: Card(
+                      elevation: 8,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(16)),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 12),
+                            Text(
+                              'Loading...',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -743,18 +697,21 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
         hintText: 'Select process type',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _processdropdownItems
-          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
-          .toList(),
+      items:
+          _processdropdownItems
+              .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+              .toList(),
       onChanged: (val) async {
         setState(() {
           _processItem = val;
         });
         if (val == 'Update') await _fetchDocumentNumbers();
       },
-      validator: (v) => v == null || v == 'Select'
-          ? 'Please select a Process Type'
-          : null,
+      validator:
+          (v) =>
+              v == null || v == 'Select'
+                  ? 'Please select a Process Type'
+                  : null,
     );
   }
 
@@ -792,9 +749,10 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
         hintText: 'Select document number',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _documentNumbers
-          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-          .toList(),
+      items:
+          _documentNumbers
+              .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+              .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
         if (v != null) await _fetchAndPopulateDetails(v);
@@ -855,12 +813,14 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
             ),
             hintText: 'Select date',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-            suffixIcon: readOnly
-                ? const Icon(Icons.lock, color: Colors.grey)
-                : const Icon(Icons.calendar_today, color: Colors.blue),
+            suffixIcon:
+                readOnly
+                    ? const Icon(Icons.lock, color: Colors.grey)
+                    : const Icon(Icons.calendar_today, color: Colors.blue),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -919,8 +879,9 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
             hintText: 'Enter $label',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -967,7 +928,11 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 16,
+                          ),
                           SizedBox(width: 4),
                           Text(
                             'Uploaded',
@@ -1031,7 +996,9 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            paths.isNotEmpty ? Icons.refresh : Icons.upload_file,
+                            paths.isNotEmpty
+                                ? Icons.refresh
+                                : Icons.upload_file,
                             size: 18,
                             color: Colors.blue,
                           ),
@@ -1062,7 +1029,11 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.visibility, size: 18, color: Colors.green),
+                            Icon(
+                              Icons.visibility,
+                              size: 18,
+                              color: Colors.green,
+                            ),
                             SizedBox(width: 8),
                             Text(
                               'View',
@@ -1089,9 +1060,7 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
             onPressed: _addRow,
             icon: const Icon(Icons.add_photo_alternate),
             label: const Text('Add More Documents'),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.blue,
-            ),
+            style: TextButton.styleFrom(foregroundColor: Colors.blue),
           ),
           if (_uploadRows.length > 1) ...[
             const SizedBox(width: 16),
@@ -1099,9 +1068,7 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
               onPressed: _removeRow,
               icon: const Icon(Icons.remove_circle, color: Colors.red),
               label: const Text('Remove Last'),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.red,
-              ),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
             ),
           ],
         ],
@@ -1112,54 +1079,55 @@ class _InternalTeamMeetingState extends State<InternalTeamMeeting>
   void _showHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Internal Team Meeting Help',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Fill in all the required fields to record your internal team meeting details. '
-                'Make sure to select the correct process type (Add/Update) and provide accurate information.',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text(
-                    'Got it',
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Internal Team Meeting Help',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all the required fields to record your internal team meeting details. '
+                    'Make sure to select the correct process type (Add/Update) and provide accurate information.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }

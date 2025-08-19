@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:learning2/core/services/session_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+// Removed direct http/json usage; now using DsrApiService abstraction.
 import 'package:geolocator/geolocator.dart';
 import 'package:learning2/core/utils/document_number_storage.dart';
 import '../../../../core/services/dsr_api_service.dart';
@@ -28,7 +28,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
 
   // Process type dropdown state
   String? _processItem = 'Select';
-  List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
+  List<String> _processdropdownItems = const ['Select'];
 
   // Document-number dropdown state
   bool _loadingDocs = false;
@@ -180,10 +180,19 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _processdropdownItems = ['Select', 'Add', 'Update'];
-      _processItem = 'Select';
-    });
+    try {
+      final list = await DsrApiService.getProcessTypes();
+      final normalized = list.isNotEmpty ? list : ['Add', 'Update'];
+      setState(() {
+        _processdropdownItems = ['Select', ...normalized];
+        _processItem = 'Select';
+      });
+    } catch (_) {
+      setState(() {
+        _processdropdownItems = ['Select', 'Add', 'Update'];
+        _processItem = 'Select';
+      });
+    }
   }
 
   Future<void> _fetchDocumentNumbers() async {
@@ -192,140 +201,99 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=13',
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers =
-              data
-                  .map((e) {
-                    return (e['DocuNumb'] ??
-                            e['docuNumb'] ??
-                            e['DocumentNumber'] ??
-                            e['documentNumber'] ??
-                            '')
-                        .toString();
-                  })
-                  .where((s) => s.isNotEmpty)
-                  .toList();
-        });
-      }
+      final docs = await DsrApiService.getDocumentNumbers('13');
+      setState(() => _documentNumbers = docs);
     } catch (_) {
-      // ignore errors
+      /* swallow */
     } finally {
-      setState(() {
-        _loadingDocs = false;
-      });
+      if (mounted) setState(() => _loadingDocs = false);
     }
   }
 
-  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb',
-    );
+  Future<void> _autofill(String docuNumb) async {
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
-        final config = activityFieldConfig[_selectedActivityType] ?? [];
-        for (final field in config) {
-          _controllers[field['key']!]?.text = data[field['rem']] ?? '';
-        }
-        setState(() {
-          _submissionDateController.text =
-              data['SubmissionDate']?.toString().substring(0, 10) ?? '';
-          _reportDateController.text =
-              data['ReportDate']?.toString().substring(0, 10) ?? '';
-          _selectedAreaCode = data['AreaCode'] ?? 'Select';
-          _selectedPurchaser = data['Purchaser'] ?? 'Select';
-          _selectedPurchaserCode = data['PurchaserCode'] ?? 'Select';
-        });
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
+      final config = activityFieldConfig[_selectedActivityType] ?? [];
+      for (final field in config) {
+        _controllers[field['key']!]?.text =
+            (data[field['rem']] ?? '').toString();
       }
-    } catch (_) {}
+      setState(() {
+        final sub =
+            (data['SubmissionDate'] ?? data['submissionDate'] ?? '').toString();
+        final rep = (data['ReportDate'] ?? data['reportDate'] ?? '').toString();
+        if (sub.isNotEmpty)
+          _submissionDateController.text = sub.substring(0, 10);
+        if (rep.isNotEmpty) _reportDateController.text = rep.substring(0, 10);
+        final areaCode =
+            (data['AreaCode'] ?? data['areaCode'] ?? 'Select').toString();
+        final purchaserFlag =
+            (data['Purchaser'] ?? data['purchaser'] ?? 'Select').toString();
+        final purchaserCode =
+            (data['PurchaserCode'] ?? data['purchaserCode'] ?? 'Select')
+                .toString();
+        // Ensure the codes exist in the respective lists; if not keep as Select until lists fetched
+        if (_areaCodes.any((a) => a['code'] == areaCode)) {
+          _selectedAreaCode = areaCode;
+        } else {
+          _selectedAreaCode = 'Select';
+        }
+        if (_purchasers.any((p) => p['code'] == purchaserFlag)) {
+          _selectedPurchaser = purchaserFlag;
+        } else {
+          _selectedPurchaser = 'Select';
+        }
+        if (_purchaserCodes.any((c) => c['code'] == purchaserCode)) {
+          _selectedPurchaserCode = purchaserCode;
+        } else {
+          _selectedPurchaserCode = 'Select';
+        }
+      });
+    } catch (_) {
+      /* ignore */
+    }
   }
 
   Future<void> _fetchAreaCodes() async {
+    setState(() => _isLoadingAreaCodes = true);
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getAreaCodes');
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is List) {
-          if (data.isEmpty) {
-            setState(() {
-              _areaCodes = [
-                {'code': 'Select', 'name': 'Select'},
-              ];
-              _isLoadingAreaCodes = false;
-            });
-            return;
-          }
-
-          final processedAreaCodes =
-              data
-                  .map((item) {
-                    final code =
-                        item['Code']?.toString().trim() ??
-                        item['code']?.toString().trim() ??
-                        item['AreaCode']?.toString().trim() ??
-                        '';
-                    final name =
-                        item['Name']?.toString().trim() ??
-                        item['name']?.toString().trim() ??
-                        code;
-                    return {'code': code, 'name': name};
-                  })
-                  .where((item) {
-                    return item['code']!.isNotEmpty && item['code'] != '   ';
-                  })
-                  .toList();
-
-          final seenCodes = <String>{};
-          final uniqueAreaCodes = [
-            {'code': 'Select', 'name': 'Select'},
-            ...processedAreaCodes.where((item) {
-              if (seenCodes.contains(item['code'])) return false;
-              seenCodes.add(item['code']!);
-              return true;
-            }),
-          ];
-
-          setState(() {
-            _areaCodes = uniqueAreaCodes;
-            _isLoadingAreaCodes = false;
-            final validCodes = _areaCodes.map((a) => a['code']).toSet();
-            if (_selectedAreaCode == null ||
-                !validCodes.contains(_selectedAreaCode)) {
-              _selectedAreaCode = 'Select';
-            }
-          });
-        } else {
-          throw Exception(
-            'Invalid response format: expected List but got ${data.runtimeType}',
-          );
-        }
-      } else if (response.statusCode == 404) {
-        setState(() {
-          _areaCodes = [
-            {'code': 'Select', 'name': 'Select'},
-          ];
-          _isLoadingAreaCodes = false;
-        });
-      } else {
-        throw Exception('Failed to fetch area codes: ${response.statusCode}');
-      }
-    } catch (e) {
+      final list = await DsrApiService.getAreaCodes();
+      final seen = <String>{};
+      final processed =
+          list
+              .map((e) {
+                final code =
+                    (e['Code'] ?? e['code'] ?? e['AreaCode'] ?? '')
+                        .toString()
+                        .trim();
+                final name = (e['Name'] ?? e['name'] ?? code).toString().trim();
+                return {'code': code, 'name': name};
+              })
+              .where((m) => m['code']!.isNotEmpty)
+              .where((m) {
+                if (seen.contains(m['code'])) return false;
+                seen.add(m['code']!);
+                return true;
+              })
+              .toList();
+      setState(() {
+        _areaCodes = [
+          {'code': 'Select', 'name': 'Select'},
+          ...processed,
+        ];
+        final codes = _areaCodes.map((a) => a['code']).toSet();
+        if (!codes.contains(_selectedAreaCode)) _selectedAreaCode = 'Select';
+      });
+    } catch (_) {
       setState(() {
         _areaCodes = [
           {'code': 'Select', 'name': 'Select'},
         ];
-        _isLoadingAreaCodes = false;
       });
+    } finally {
+      if (mounted) setState(() => _isLoadingAreaCodes = false);
     }
   }
 
@@ -338,66 +306,39 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
         {'code': 'Select', 'name': 'Select'},
       ];
     });
-
     try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/getPurchaserOptions');
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is List) {
-          final seenCodes = <String>{};
-          final uniquePurchasers = [
-            {'code': 'Select', 'name': 'Select'},
-            ...data
-                .map(
-                  (item) => {
-                    'code':
-                        item['Code']?.toString() ??
-                        item['code']?.toString() ??
-                        '',
-                    'name':
-                        item['Description']?.toString() ??
-                        item['description']?.toString() ??
-                        '',
-                  },
-                )
-                .where((item) {
-                  if (item['code']!.isEmpty ||
-                      seenCodes.contains(item['code'])) {
-                    return false;
-                  }
-                  seenCodes.add(item['code']!);
-                  return true;
-                }),
-          ];
-
-          setState(() {
-            _purchasers = uniquePurchasers;
-            _isLoadingPurchasers = false;
-            final validCodes = _purchasers.map((p) => p['code']).toSet();
-            if (_selectedPurchaser == null ||
-                !validCodes.contains(_selectedPurchaser)) {
-              _selectedPurchaser = 'Select';
-            }
-          });
-        } else {
-          throw Exception(
-            'Invalid response format: expected List but got ${data.runtimeType}',
-          );
-        }
-      } else {
-        throw Exception(
-          'Failed to fetch purchaser options: ${response.statusCode}',
-        );
-      }
-    } catch (e) {
+      final list = await DsrApiService.getPurchaserOptions();
+      final seen = <String>{};
+      final processed =
+          list
+              .map((e) {
+                final code = (e['Code'] ?? e['code'] ?? '').toString();
+                final name =
+                    (e['Description'] ?? e['description'] ?? '').toString();
+                return {'code': code, 'name': name};
+              })
+              .where((m) {
+                if (m['code']!.isEmpty || seen.contains(m['code']))
+                  return false;
+                seen.add(m['code']!);
+                return true;
+              })
+              .toList();
       setState(() {
         _purchasers = [
           {'code': 'Select', 'name': 'Select'},
+          ...processed,
         ];
-        _isLoadingPurchasers = false;
       });
+    } catch (_) {
+      setState(
+        () =>
+            _purchasers = [
+              {'code': 'Select', 'name': 'Select'},
+            ],
+      );
+    } finally {
+      if (mounted) setState(() => _isLoadingPurchasers = false);
     }
   }
 
@@ -641,96 +582,107 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
 
-    final dsrData = <String, dynamic>{
-      'ActivityType': _selectedActivityType,
-      'SubmissionDate': _submissionDateController.text,
-      'ReportDate': _reportDateController.text,
-      'CreateId': '2948',
-      'UpdateId': '2948',
-      'AreaCode': _selectedAreaCode ?? '',
-      'Purchaser': _selectedPurchaser ?? '',
-      'PurchaserCode': _selectedPurchaserCode ?? '',
-      'DsrParam': '13',
-      'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
-      'ProcessType': _processItem == 'Update' ? 'U' : 'A',
-      'latitude': _currentPosition?.latitude.toString() ?? '',
-      'longitude': _currentPosition?.longitude.toString() ?? '',
-    };
-
+    // Build DTO using model
+    late DateTime submissionDate;
+    late DateTime reportDate;
+    try {
+      submissionDate = DateTime.parse(_submissionDateController.text.trim());
+      reportDate = DateTime.parse(_reportDateController.text.trim());
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid date'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     final config = activityFieldConfig[_selectedActivityType] ?? [];
+    String rem01 = '', rem02 = '', rem03 = '', rem04 = '';
     for (final field in config) {
-      dsrData[field['rem']!] = _controllers[field['key']!]?.text ?? '';
-    }
-
-    // Add action remarks data
-    for (int i = 0; i < _actionRows.length; i++) {
-      dsrData['dsrRem0${i + 5}'] = _actionPointsControllers[i].text;
-      dsrData['dsrRem0${i + 9}'] = _closerDateControllers[i].text;
-    }
-
-    final imageData = <String, dynamic>{};
-    for (int i = 0; i < _selectedImages.length; i++) {
-      final file = _selectedImages[i];
-      if (file != null) {
-        final imageBytes = await file.readAsBytes();
-        final base64Image =
-            'data:image/jpeg;base64,${base64Encode(imageBytes)}';
-        imageData['image${i + 1}'] = base64Image;
+      final key = field['key'];
+      final rem = field['rem'];
+      final value = _controllers[key]!.text;
+      switch (rem) {
+        case 'dsrRem01':
+          rem01 = value;
+          break;
+        case 'dsrRem02':
+          rem02 = value;
+          break;
+        case 'dsrRem03':
+          rem03 = value;
+          break;
+        case 'dsrRem04':
+          rem04 = value;
+          break;
       }
     }
-    dsrData['Images'] = imageData;
+    // Action remarks mapped into remaining dsrRem05..08 if needed (limit to first 4 action rows)
+    String rem05 = '', rem06 = '', rem07 = '', rem08 = '';
+    if (_actionPointsControllers.isNotEmpty)
+      rem05 = _actionPointsControllers[0].text; // action point 1
+    if (_closerDateControllers.isNotEmpty)
+      rem06 = _closerDateControllers[0].text; // closer date 1
+    if (_actionPointsControllers.length > 1)
+      rem07 = _actionPointsControllers[1].text; // action point 2
+    if (_closerDateControllers.length > 1)
+      rem08 = _closerDateControllers[1].text; // closer date 2
 
+    final loginId = await SessionManager.getLoginId() ?? '';
+    final dto = DsrEntryDto(
+      activityType: _selectedActivityType,
+      submissionDate: submissionDate,
+      reportDate: reportDate,
+      createId: loginId,
+      dsrParam: '13',
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
+      dsrRem01: rem01,
+      dsrRem02: rem02,
+      dsrRem03: rem03,
+      dsrRem04: rem04,
+      dsrRem05: rem05,
+      dsrRem06: rem06,
+      dsrRem07: rem07,
+      dsrRem08: rem08,
+      areaCode: _selectedAreaCode ?? '',
+      purchaser: _selectedPurchaser ?? '',
+      purchaserCode: _selectedPurchaserCode ?? '',
+      latitude: _currentPosition?.latitude.toString() ?? '',
+      longitude: _currentPosition?.longitude.toString() ?? '',
+    );
+
+    bool success = false;
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}',
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
+      }
+      success = true;
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
-
-      final resp =
-          _processItem == 'Update'
-              ? await http.put(
-                url,
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode(dsrData),
-              )
-              : await http.post(
-                url,
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode(dsrData),
-              );
-
-      final success =
-          (_processItem == 'Update' && resp.statusCode == 204) ||
-          (_processItem != 'Update' && resp.statusCode == 201);
-
+    }
+    if (!mounted) return;
+    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            success
-                ? exitAfter
-                    ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                    : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-                : 'Error: ${resp.body}',
+            _processItem == 'Update'
+                ? 'Updated successfully.'
+                : 'Submitted successfully.',
           ),
-          backgroundColor: success ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.green,
         ),
       );
-
-      if (success) {
-        if (exitAfter) {
-          Navigator.of(context).pop();
-        } else {
-          _clearForm();
-        }
+      if (exitAfter) {
+        Navigator.of(context).pop();
+      } else {
+        _clearForm();
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Exception: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     }
   }
 
@@ -766,6 +718,133 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
       _closerDateControllers.add(TextEditingController());
     });
     _formKey.currentState?.reset();
+  }
+
+  // Specialized dropdown builders with code as value
+  Widget _buildAreaCodeDropdown() {
+    return _buildDropdownField(
+      'Area Code',
+      _selectedAreaCode,
+      _areaCodes.map((a) => a['code']!).toList(),
+      (val) {
+        if (val == null) return;
+        _onAreaCodeChanged(val);
+      },
+      isLoading: _isLoadingAreaCodes,
+    );
+  }
+
+  Widget _buildPurchaserFlagDropdown() {
+    return _buildDropdownField(
+      'Purchaser Type',
+      _selectedPurchaser,
+      _purchasers.map((p) => p['code']!).toList(),
+      (val) {
+        if (val == null) return;
+        _onPurchaserChanged(val);
+      },
+      isLoading: _isLoadingPurchasers,
+    );
+  }
+
+  Widget _buildPurchaserCodeDropdown() {
+    final items =
+        _purchaserCodes.map((c) {
+          if (c['code'] == 'Select') return 'Select';
+          return c['code']!; // value only the code
+        }).toList();
+    return _buildDropdownField(
+      'Purchaser Code',
+      _selectedPurchaserCode,
+      items,
+      (val) {
+        if (val == null) return;
+        _onPurchaserCodeChanged(val);
+      },
+      isLoading: _isLoadingPurchaserCodes,
+    );
+  }
+
+  // Override generic field to show labels mapping when building menu items
+  Widget _buildDropdownField(
+    String label,
+    String? value,
+    List<String> items,
+    Function(String?) onChanged, {
+    bool isLoading = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child:
+              isLoading
+                  ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                  : DropdownButton<String>(
+                    isExpanded: true,
+                    value: value,
+                    underline: Container(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    items:
+                        items.map((item) {
+                          String display = item;
+                          if (label == 'Area Code' && item != 'Select') {
+                            final match = _areaCodes.firstWhere(
+                              (a) => a['code'] == item,
+                              orElse: () => {'code': item, 'name': item},
+                            );
+                            display = '${match['code']} - ${match['name']}';
+                          } else if (label == 'Purchaser Type' &&
+                              item != 'Select') {
+                            final match = _purchasers.firstWhere(
+                              (p) => p['code'] == item,
+                              orElse: () => {'code': item, 'name': item},
+                            );
+                            display = '${match['code']} - ${match['name']}';
+                          } else if (label == 'Purchaser Code' &&
+                              item != 'Select') {
+                            final match = _purchaserCodes.firstWhere(
+                              (c) => c['code'] == item,
+                              orElse: () => {'code': item, 'name': item},
+                            );
+                            display = '${match['code']} - ${match['name']}';
+                          }
+                          return DropdownMenuItem(
+                            value: item,
+                            child: Text(display),
+                          );
+                        }).toList(),
+                    onChanged: onChanged,
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Colors.grey,
+                    ),
+                  ),
+        ),
+      ],
+    );
   }
 
   // Removed unused document number fetch helper (centralized elsewhere if needed)
@@ -892,36 +971,11 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
                   // Location Information Section
                   _buildSectionTitle('Location Information'),
                   const SizedBox(height: 8),
-                  _buildDropdownField(
-                    'Area Code',
-                    _selectedAreaCode,
-                    _areaCodes.map((area) => area['name']!).toList(),
-                    _onAreaCodeChanged,
-                    isLoading: _isLoadingAreaCodes,
-                  ),
+                  _buildAreaCodeDropdown(),
                   const SizedBox(height: 16),
-                  _buildDropdownField(
-                    'Purchaser Type',
-                    _selectedPurchaser,
-                    _purchasers.map((purchaser) => purchaser['name']!).toList(),
-                    _onPurchaserChanged,
-                    isLoading: _isLoadingPurchasers,
-                  ),
+                  _buildPurchaserFlagDropdown(),
                   const SizedBox(height: 16),
-                  _buildDropdownField(
-                    'Purchaser Code',
-                    _selectedPurchaserCode,
-                    _purchaserCodes
-                        .map(
-                          (code) =>
-                              code['code'] == 'Select'
-                                  ? 'Select'
-                                  : '${code['code']} - ${code['name']}',
-                        )
-                        .toList(),
-                    _onPurchaserCodeChanged,
-                    isLoading: _isLoadingPurchaserCodes,
-                  ),
+                  _buildPurchaserCodeDropdown(),
                   const SizedBox(height: 24),
 
                   // Dynamic Fields Section
@@ -1097,7 +1151,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
               .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
-        if (v != null) await _fetchAndPopulateDetails(v);
+        if (v != null) await _autofill(v);
       },
       validator: (v) => v == null ? 'Required' : null,
     );
@@ -1168,66 +1222,7 @@ class _MeetingsWithContractorState extends State<MeetingsWithContractor>
     );
   }
 
-  Widget _buildDropdownField(
-    String label,
-    String? value,
-    List<String> items,
-    Function(String?) onChanged, {
-    bool isLoading = false,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child:
-              isLoading
-                  ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                  : DropdownButton<String>(
-                    isExpanded: true,
-                    value: value,
-                    underline: Container(),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    items:
-                        items
-                            .map(
-                              (item) => DropdownMenuItem(
-                                value: item,
-                                child: Text(item),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: onChanged,
-                    icon: const Icon(
-                      Icons.keyboard_arrow_down,
-                      color: Colors.grey,
-                    ),
-                  ),
-        ),
-      ],
-    );
-  }
+  // (Old generic _buildDropdownField removed; using customized version above)
 
   List<Widget> _buildDynamicFields() {
     final config = activityFieldConfig[_selectedActivityType] ?? [];

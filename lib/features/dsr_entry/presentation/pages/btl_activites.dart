@@ -8,6 +8,7 @@ import '../../../../core/services/dsr_api_service.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
+import 'package:learning2/core/services/session_manager.dart';
 
 class BtlActivities extends StatefulWidget {
   const BtlActivities({super.key});
@@ -183,23 +184,26 @@ class _BtlActivitiesState extends State<BtlActivities>
   // Fetch details for a selected document number and populate form fields
   Future<void> _fetchDocumentDetails(String docuNumb) async {
     try {
-      final data = await DsrApiService.getDocumentDetails(docuNumb);
-      if (data != null) {
-        setState(() {
-          _activityTypeItem = data['dsrRem01'] ?? 'Select';
-          _participantsController.text = data['dsrRem02'] ?? '';
-          _townController.text = data['dsrRem03'] ?? '';
-          _learningsController.text = data['dsrRem04'] ?? '';
-          _submissionDateController.text = (data['SubmissionDate'] ?? '')
-              .toString()
-              .substring(0, 10);
-          _reportDateController.text = (data['ReportDate'] ?? '')
-              .toString()
-              .substring(0, 10);
-        });
-      }
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
+      setState(() {
+        _activityTypeItem = data['dsrRem01']?.toString() ?? 'Select';
+        _participantsController.text = data['dsrRem02']?.toString() ?? '';
+        _townController.text = data['dsrRem03']?.toString() ?? '';
+        _learningsController.text = data['dsrRem04']?.toString() ?? '';
+        _submissionDateController.text = (data['SubmissionDate'] ??
+                data['submissionDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+        _reportDateController.text = (data['ReportDate'] ??
+                data['reportDate'] ??
+                '')
+            .toString()
+            .substring(0, 10);
+      });
     } catch (e) {
-      debugPrint('Error fetching document details: $e');
+      debugPrint('Autofill error: $e');
     }
   }
 
@@ -292,11 +296,12 @@ class _BtlActivitiesState extends State<BtlActivities>
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) await _initGeolocation();
 
+    final loginId = await SessionManager.getLoginId() ?? '';
     final dto = DsrEntryDto(
       activityType: 'BTL Activities',
       submissionDate: DateTime.parse(_submissionDateController.text),
       reportDate: DateTime.parse(_reportDateController.text),
-      createId: '2948',
+      createId: loginId,
       dsrParam: param,
       docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
       processType: _processItem == 'Update' ? 'U' : 'A',

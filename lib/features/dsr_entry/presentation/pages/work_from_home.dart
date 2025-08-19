@@ -1,15 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:learning2/core/services/session_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+// Removed direct http usage in favor of centralized DsrApiService.
 import 'package:geolocator/geolocator.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/document_number_storage.dart';
 import 'dsr_entry.dart';
 import 'dsr_exception_entry.dart';
+import '../../../../core/services/dsr_api_service.dart';
 
 class WorkFromHome extends StatefulWidget {
   const WorkFromHome({super.key});
@@ -22,41 +21,44 @@ class _WorkFromHomeState extends State<WorkFromHome>
     with SingleTickerProviderStateMixin {
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
-  
+
   final _formKey = GlobalKey<FormState>();
-  
+
   String? _processItem = 'Select';
-  List<String> _processdropdownItems = ['Select', 'Add', 'Update'];
-  bool _isLoadingProcessTypes = false;
-  String? _processTypeError;
-  
+  List<String> _processdropdownItems = const ['Select'];
+  // loading state retained if future UI wants spinner (currently unused)
+  // Removed _processTypeError (not displayed in UI).
+
   // Document-number dropdown state
   bool _loadingDocs = false;
   List<String> _documentNumbers = [];
   String? _selectedDocuNumb;
-  
+
   // Geolocation
   Position? _currentPosition;
 
-  final TextEditingController _submissionDateController = TextEditingController();
+  final TextEditingController _submissionDateController =
+      TextEditingController();
   final TextEditingController _reportDateController = TextEditingController();
-  DateTime? _selectedSubmissionDate;
-  DateTime? _selectedReportDate;
-  
+  // Removed stored DateTime fields; we keep only text controllers.
+
   // Activity details controllers
-  final TextEditingController _activityDetails1Controller = TextEditingController();
-  final TextEditingController _activityDetails2Controller = TextEditingController();
-  final TextEditingController _activityDetails3Controller = TextEditingController();
+  final TextEditingController _activityDetails1Controller =
+      TextEditingController();
+  final TextEditingController _activityDetails2Controller =
+      TextEditingController();
+  final TextEditingController _activityDetails3Controller =
+      TextEditingController();
   final TextEditingController _otherPointsController = TextEditingController();
-  
+
   // Image upload
   final List<int> _uploadRows = [0];
   final List<File?> _selectedImages = [null];
   final ImagePicker _picker = ImagePicker();
-  
+
   // Document number
   final _documentNumberController = TextEditingController();
-  String? _documentNumber;
+  // Removed unused _documentNumber (we use _selectedDocuNumb for updates).
 
   @override
   void initState() {
@@ -70,7 +72,7 @@ class _WorkFromHomeState extends State<WorkFromHome>
       curve: Curves.easeOut,
     );
     _fadeController.forward();
-    
+
     _initGeolocation();
     _loadInitialDocumentNumber();
     _fetchProcessTypes();
@@ -104,7 +106,9 @@ class _WorkFromHomeState extends State<WorkFromHome>
       if (permission == LocationPermission.deniedForever) {
         throw Exception('Location permissions permanently denied.');
       }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       setState(() {
         _currentPosition = pos;
       });
@@ -115,25 +119,26 @@ class _WorkFromHomeState extends State<WorkFromHome>
 
   // Load document number when screen initializes
   Future<void> _loadInitialDocumentNumber() async {
-    final savedDocNumber = await DocumentNumberStorage.loadDocumentNumber(DocumentNumberKeys.workFromHome);
-    if (savedDocNumber != null) {
-      setState(() {
-        _documentNumber = savedDocNumber;
-      });
-    }
+    // Previously stored document number not used after refactor.
+    await DocumentNumberStorage.loadDocumentNumber(
+      DocumentNumberKeys.workFromHome,
+    );
   }
 
   Future<void> _fetchProcessTypes() async {
-    setState(() {
-      _isLoadingProcessTypes = false;
-      _processTypeError = null;
-    });
-    // Hardcoded for now, can be fetched from backend if needed
-    setState(() {
-      _processdropdownItems = ['Select', 'Add', 'Update'];
-      _processItem = 'Select';
-      _isLoadingProcessTypes = false;
-    });
+    // No spinner currently; could add state if desired.
+    try {
+      final list = await DsrApiService.getProcessTypes();
+      // Expecting something like ['Add','Update'] else fallback
+      final normalized = list.isNotEmpty ? list : ['Add', 'Update'];
+      setState(() {
+        _processdropdownItems = ['Select', ...normalized];
+      });
+    } catch (e) {
+      // swallow; could show snackbar if desired
+    } finally {
+      // no-op
+    }
   }
 
   // Fetch document numbers for Update
@@ -143,55 +148,42 @@ class _WorkFromHomeState extends State<WorkFromHome>
       _documentNumbers = [];
       _selectedDocuNumb = null;
     });
-    final uri = Uri.parse(
-      'http://10.4.64.23/api/DsrTry/getDocumentNumbers?dsrParam=55' // Use correct param for this activity
-    );
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
-        setState(() {
-          _documentNumbers = data
-            .map((e) {
-              return (e['DocuNumb']
-                   ?? e['docuNumb']
-                   ?? e['DocumentNumber']
-                   ?? e['documentNumber']
-                   ?? '').toString();
-            })
-            .where((s) => s.isNotEmpty)
-            .toList();
-        });
-      }
+      final docs = await DsrApiService.getDocumentNumbers('55');
+      setState(() => _documentNumbers = docs);
     } catch (_) {
-      // ignore errors
+      // swallow
     } finally {
-      setState(() { _loadingDocs = false; });
+      if (mounted) {
+        setState(() => _loadingDocs = false);
+      }
     }
   }
 
   // Fetch details for a document number and populate fields
-  Future<void> _fetchAndPopulateDetails(String docuNumb) async {
-    final uri = Uri.parse('http://10.4.64.23/api/DsrTry/getDsrEntry?docuNumb=$docuNumb');
+  Future<void> _autofill(String docuNumb) async {
     try {
-      final resp = await http.get(uri);
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
-        setState(() {
-          _activityDetails1Controller.text = data['dsrRem01'] ?? '';
-          _activityDetails2Controller.text = data['dsrRem02'] ?? '';
-          _activityDetails3Controller.text = data['dsrRem03'] ?? '';
-          _otherPointsController.text = data['dsrRem04'] ?? '';
-          _submissionDateController.text = data['SubmissionDate']?.toString().substring(0, 10) ?? '';
-          _reportDateController.text = data['ReportDate']?.toString().substring(0, 10) ?? '';
-        });
-      }
-    } catch (_) {}
+      final data = await DsrApiService.autofill(docuNumb);
+      if (data == null) return;
+      setState(() {
+        _activityDetails1Controller.text = (data['dsrRem01'] ?? '').toString();
+        _activityDetails2Controller.text = (data['dsrRem02'] ?? '').toString();
+        _activityDetails3Controller.text = (data['dsrRem03'] ?? '').toString();
+        _otherPointsController.text = (data['dsrRem04'] ?? '').toString();
+        final sub =
+            (data['SubmissionDate'] ?? data['submissionDate'] ?? '').toString();
+        final rep = (data['ReportDate'] ?? data['reportDate'] ?? '').toString();
+        if (sub.isNotEmpty)
+          _submissionDateController.text = sub.substring(0, 10);
+        if (rep.isNotEmpty) _reportDateController.text = rep.substring(0, 10);
+      });
+    } catch (_) {
+      // ignore errors for autofill
+    }
   }
 
   void _setSubmissionDateToToday() {
     final today = DateTime.now();
-    _selectedSubmissionDate = today;
     _submissionDateController.text = DateFormat('yyyy-MM-dd').format(today);
   }
 
@@ -202,57 +194,46 @@ class _WorkFromHomeState extends State<WorkFromHome>
       context: context,
       initialDate: now,
       firstDate: DateTime(now.year - 10), // Allow any past date (last 10 years)
-      lastDate: now,  // Only allow up to today
+      lastDate: now, // Only allow up to today
     );
     if (picked != null) {
       if (picked.isBefore(threeDaysAgo)) {
         showDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Please Put Valid DSR Date.'),
-            content: const Text(
-              'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.'
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Please Put Valid DSR Date.'),
+                content: const Text(
+                  'You Can submit DSR only Last Three Days. If You want to submit back date entry Please enter Exception entry (Path : Transcation --> DSR Exception Entry). Take Approval from concerned and Fill DSR Within 3 days after approval.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const DsrExceptionEntryPage(),
+                        ),
+                      );
+                    },
+                    child: const Text('Go to Exception Entry'),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const DsrExceptionEntryPage()),
-                  );
-                },
-                child: const Text('Go to Exception Entry'),
-              ),
-            ],
-          ),
         );
         return;
       }
       setState(() {
-        _selectedReportDate = picked;
         _reportDateController.text = DateFormat('yyyy-MM-dd').format(picked);
       });
     }
   }
 
-  void _addRow() {
-    setState(() {
-      _uploadRows.add(_uploadRows.length);
-      _selectedImages.add(null);
-    });
-  }
-
-  void _removeRow() {
-    if (_uploadRows.length <= 1) return;
-    setState(() {
-      _uploadRows.removeLast();
-      _selectedImages.removeLast();
-    });
-  }
+  // Removed unused _addRow and _removeRow helpers.
 
   Future<void> _pickImage(int index) async {
     final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
@@ -264,47 +245,23 @@ class _WorkFromHomeState extends State<WorkFromHome>
   void _showImageDialog(File imageFile) {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.6,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              fit: BoxFit.contain,
-              image: FileImage(imageFile),
+      builder:
+          (context) => Dialog(
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.8,
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  fit: BoxFit.contain,
+                  image: FileImage(imageFile),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 
-  Future<void> submitDsrEntry(Map<String, dynamic> dsrData) async {
-    final url = Uri.parse('http://10.4.64.23/api/DsrTry');
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(dsrData),
-    );
-    print('Status: ${response.statusCode}');
-    print('Body: ${response.body}');
-    if (response.statusCode == 201) {
-      print('✅ Data inserted successfully!');
-    } else {
-      print('❌ Data NOT inserted! Error: ${response.body}');
-    }
-  }
-
-  // Add a method to reset the form (clear document number)
-  void _resetForm() {
-    setState(() {
-      _documentNumber = null;
-      _documentNumberController.clear();
-      _processItem = null;
-      // Clear other form fields as needed
-    });
-    DocumentNumberStorage.clearDocumentNumber(DocumentNumberKeys.workFromHome); // Clear from persistent storage
-  }
+  // Removed submitDsrEntry & resetForm (centralized service now used).
 
   Future<void> _onSubmit({required bool exitAfter}) async {
     if (!_formKey.currentState!.validate()) return;
@@ -313,68 +270,70 @@ class _WorkFromHomeState extends State<WorkFromHome>
       await _initGeolocation();
     }
 
-    final dsrData = {
-      'ActivityType': 'Work From Home',
-      'SubmissionDate': _submissionDateController.text,
-      'ReportDate': _reportDateController.text,
-      'dsrRem01': _activityDetails1Controller.text,
-      'dsrRem02': _activityDetails2Controller.text,
-      'dsrRem03': _activityDetails3Controller.text,
-      'dsrRem04': _otherPointsController.text,
-      'latitude': _currentPosition?.latitude.toString() ?? '',
-      'longitude': _currentPosition?.longitude.toString() ?? '',
-      'DsrParam': '55',
-      'DocuNumb': _processItem == 'Update' ? _selectedDocuNumb : null,
-      'ProcessType': _processItem == 'Update' ? 'U' : 'A',
-      'CreateId': '2948',
-      'UpdateId': '2948',
-    };
-    
+    // Build DTO
+    late DateTime submissionDate;
+    late DateTime reportDate;
     try {
-      final url = Uri.parse(
-        'http://10.4.64.23/api/DsrTry/${_processItem == 'Update' ? 'update' : ''}'
-      );
-      final resp = _processItem == 'Update'
-          ? await http.put(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            )
-          : await http.post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode(dsrData),
-            );
-      final success = (_processItem == 'Update' && resp.statusCode == 204) ||
-                      (_processItem != 'Update' && resp.statusCode == 201);
-      
+      submissionDate = DateTime.parse(_submissionDateController.text.trim());
+      reportDate = DateTime.parse(_reportDateController.text.trim());
+    } catch (_) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success
-              ? exitAfter
-                  ? '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Exiting...'
-                  : '${_processItem == 'Update' ? 'Updated' : 'Submitted'} successfully. Ready for new entry.'
-              : 'Error: ${resp.body}'),
-          backgroundColor: success ? Colors.green : Colors.red,
-          behavior: SnackBarBehavior.floating,
+        const SnackBar(
+          content: Text('Invalid date format'),
+          backgroundColor: Colors.red,
         ),
       );
-      
-      if (success) {
-        if (exitAfter) {
-          Navigator.of(context).pop();
-        } else {
-          _clearForm();
-        }
+      return;
+    }
+
+    final loginId = await SessionManager.getLoginId() ?? '';
+    final dto = DsrEntryDto(
+      activityType: 'Work From Home',
+      submissionDate: submissionDate,
+      reportDate: reportDate,
+      createId: loginId,
+      dsrParam: '55',
+      processType: _processItem == 'Update' ? 'U' : 'A',
+      docuNumb: _processItem == 'Update' ? _selectedDocuNumb : null,
+      dsrRem01: _activityDetails1Controller.text,
+      dsrRem02: _activityDetails2Controller.text,
+      dsrRem03: _activityDetails3Controller.text,
+      dsrRem04: _otherPointsController.text,
+      latitude: _currentPosition?.latitude.toString() ?? '',
+      longitude: _currentPosition?.longitude.toString() ?? '',
+    );
+
+    bool success = false;
+    try {
+      if (_processItem == 'Update') {
+        await DsrApiService.updateDsr(dto);
+      } else {
+        await DsrApiService.submitDsr(dto);
       }
+      success = true;
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    }
+
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Exception: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
+          content: Text(
+            _processItem == 'Update'
+                ? 'Updated successfully.'
+                : 'Submitted successfully.',
+          ),
+          backgroundColor: Colors.green,
         ),
       );
+      if (exitAfter) {
+        Navigator.of(context).pop();
+      } else {
+        _clearForm();
+      }
     }
   }
 
@@ -399,36 +358,7 @@ class _WorkFromHomeState extends State<WorkFromHome>
     _setSubmissionDateToToday();
   }
 
-  Future<String?> _fetchDocumentNumberFromServer() async {
-    try {
-      final url = Uri.parse('http://10.4.64.23/api/DsrTry/generateDocumentNumber');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode('KKR'), // Hardcoded to KKR
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        String? documentNumber;
-        if (data is Map<String, dynamic>) {
-          documentNumber = data['documentNumber'] ?? data['DocumentNumber'] ?? data['docNumber'] ?? data['DocNumber'];
-        } else if (data is String) {
-          documentNumber = data;
-        }
-        
-        // Save to persistent storage
-        if (documentNumber != null) {
-          await DocumentNumberStorage.saveDocumentNumber(DocumentNumberKeys.workFromHome, documentNumber);
-        }
-        
-        return documentNumber;
-      } else {
-        return null;
-      }
-    } catch (e) {
-      return null;
-    }
-  }
+  // Removed document number generation (not required for Add path currently).
 
   @override
   Widget build(BuildContext context) {
@@ -448,10 +378,11 @@ class _WorkFromHomeState extends State<WorkFromHome>
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DsrEntry()),
-          ),
+          onPressed:
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DsrEntry()),
+              ),
         ),
         actions: [
           IconButton(
@@ -591,7 +522,9 @@ class _WorkFromHomeState extends State<WorkFromHome>
                             elevation: 0,
                           ),
                           child: Text(
-                            _processItem == 'Update' ? 'Update & New' : 'Submit & New',
+                            _processItem == 'Update'
+                                ? 'Update & New'
+                                : 'Submit & New',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -613,7 +546,9 @@ class _WorkFromHomeState extends State<WorkFromHome>
                             elevation: 0,
                           ),
                           child: Text(
-                            _processItem == 'Update' ? 'Update & Exit' : 'Submit & Exit',
+                            _processItem == 'Update'
+                                ? 'Update & Exit'
+                                : 'Submit & Exit',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -678,18 +613,26 @@ class _WorkFromHomeState extends State<WorkFromHome>
         hintText: 'Select process type',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _processdropdownItems
-          .map((it) => DropdownMenuItem(value: it, child: Text(it)))
-          .toList(),
+      items:
+          _processdropdownItems
+              .map((it) => DropdownMenuItem(value: it, child: Text(it)))
+              .toList(),
       onChanged: (val) async {
         setState(() {
           _processItem = val;
         });
-        if (val == 'Update') await _fetchDocumentNumbers();
+        if (val == 'Update')
+          await _fetchDocumentNumbers();
+        else {
+          // When switching back to Add, clear autofilled data except submission date.
+          _selectedDocuNumb = null;
+        }
       },
-      validator: (v) => v == null || v == 'Select'
-          ? 'Please select a Process Type'
-          : null,
+      validator:
+          (v) =>
+              v == null || v == 'Select'
+                  ? 'Please select a Process Type'
+                  : null,
     );
   }
 
@@ -727,12 +670,13 @@ class _WorkFromHomeState extends State<WorkFromHome>
         hintText: 'Select document number',
         hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
       ),
-      items: _documentNumbers
-          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-          .toList(),
+      items:
+          _documentNumbers
+              .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+              .toList(),
       onChanged: (v) async {
         setState(() => _selectedDocuNumb = v);
-        if (v != null) await _fetchAndPopulateDetails(v);
+        if (v != null) await _autofill(v);
       },
       validator: (v) => v == null ? 'Required' : null,
     );
@@ -790,12 +734,14 @@ class _WorkFromHomeState extends State<WorkFromHome>
             ),
             hintText: 'Select date',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
-            suffixIcon: readOnly
-                ? const Icon(Icons.lock, color: Colors.grey)
-                : const Icon(Icons.calendar_today, color: Colors.blue),
+            suffixIcon:
+                readOnly
+                    ? const Icon(Icons.lock, color: Colors.grey)
+                    : const Icon(Icons.calendar_today, color: Colors.blue),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -854,8 +800,9 @@ class _WorkFromHomeState extends State<WorkFromHome>
             hintText: 'Enter $label',
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
-          validator: (val) =>
-              val == null || val.isEmpty ? 'This field is required' : null,
+          validator:
+              (val) =>
+                  val == null || val.isEmpty ? 'This field is required' : null,
         ),
       ],
     );
@@ -902,7 +849,11 @@ class _WorkFromHomeState extends State<WorkFromHome>
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.check_circle, color: Colors.green, size: 16),
+                          Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 16,
+                          ),
                           SizedBox(width: 4),
                           Text(
                             'Uploaded',
@@ -965,7 +916,11 @@ class _WorkFromHomeState extends State<WorkFromHome>
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.visibility, size: 18, color: Colors.green),
+                            Icon(
+                              Icons.visibility,
+                              size: 18,
+                              color: Colors.green,
+                            ),
                             SizedBox(width: 8),
                             Text(
                               'View',
@@ -1015,54 +970,55 @@ class _WorkFromHomeState extends State<WorkFromHome>
   void _showHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Work From Home Help',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Fill in all the required fields to record your work from home details. '
-                'Make sure to select the correct process type (Add/Update) and provide accurate information.',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text(
-                    'Got it',
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Work From Home Help',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Fill in all the required fields to record your work from home details. '
+                    'Make sure to select the correct process type (Add/Update) and provide accurate information.',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Got it',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 }

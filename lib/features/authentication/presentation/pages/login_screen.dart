@@ -1,13 +1,12 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:http/io_client.dart';
 import 'package:learning2/features/worker/presentation/pages/Worker_Home_Screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:learning2/features/dashboard/presentation/pages/home_screen.dart';
+import 'package:http/http.dart' as http;
 // Import your worker screen here
 import 'log_in_otp.dart';
 import 'package:learning2/core/constants/fonts.dart';
@@ -25,13 +24,17 @@ class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final String apiUrl = "https://192.168.55.182:7023/api/Auth/login";
   bool _obscurePassword = true;
   bool _isLoading = false;
-  final bool _rememberMe = false;
-  late FirebaseMessaging _messaging;
-  String? _deviceToken;
   final _formKey = GlobalKey<FormState>();
+
+  // API
+  static const String _baseUrl = 'http://10.4.64.23';
+  static const String _loginPath = '/api/Auth/execute';
+
+  // appRegId via FCM
+  late FirebaseMessaging _messaging;
+  String? _appRegId;
 
   // Animation controllers
   late AnimationController _animController;
@@ -42,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
-    _initializeFirebaseMessaging();
+    _initAppRegId();
     _setupAnimations();
   }
 
@@ -79,14 +82,17 @@ class _LoginScreenState extends State<LoginScreen>
     _animController.forward();
   }
 
-  void _initializeFirebaseMessaging() async {
-    _messaging = FirebaseMessaging.instance;
-    NotificationSettings settings = await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    _deviceToken = await _messaging.getToken();
+  Future<void> _initAppRegId() async {
+    try {
+      _messaging = FirebaseMessaging.instance;
+      await _messaging.requestPermission(alert: true, badge: true, sound: true);
+      final token = await _messaging.getToken();
+      setState(() {
+        _appRegId = token;
+      });
+    } catch (_) {
+      // Silently ignore; we'll fallback to UnknownDevice
+    }
   }
 
   Future<void> loginUser() async {
@@ -96,49 +102,50 @@ class _LoginScreenState extends State<LoginScreen>
 
     final String userID = _usernameController.text.trim();
     final String password = _passwordController.text.trim();
-    final String appRegId = _deviceToken ?? "UnknownDevice";
-
-    final Map<String, dynamic> requestBody = {
-      'userID': userID,
-      'password': password,
-      'appRegId': appRegId,
-    };
+    final String appRegId = _appRegId ?? 'UnknownDevice';
 
     try {
-      final result = await InternetAddress.lookup('google.com');
-      if (result.isEmpty || result.first.rawAddress.isEmpty) {
-        throw const SocketException('No Internet Connection');
-      }
+      final uri = Uri.parse('$_baseUrl$_loginPath');
+      final payload = jsonEncode({
+        'userID': userID,
+        'password': password,
+        'appRegId': appRegId,
+      });
 
-      final client = IOClient(
-        HttpClient()..badCertificateCallback = (cert, host, port) => true,
-      );
-      final response = await client.post(
-        Uri.parse(apiUrl),
+      final resp = await http.post(
+        uri,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(requestBody),
+        body: payload,
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = jsonDecode(response.body);
-        if (responseData['msg'] == 'Authentication successful') {
+      if (resp.statusCode == 200) {
+        final Map<String, dynamic> body = jsonDecode(resp.body);
+        if (body['msg'] == 'Authentication successful') {
+          final data = body['data'] as Map<String, dynamic>?;
+          final String? emplName = data?['emplName'] as String?;
+          final String? areaCode = data?['areaCode'] as String?;
+          final rolesObj = data?['roles'];
+
+          // Normalize roles to a Set<String>
+          final Set<String> roles = {
+            ...switch (rolesObj) {
+              List list => list.map((e) => e.toString()).toSet(),
+              _ => <String>{},
+            },
+          };
+
+          // Persist session
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool('isLoggedIn', true);
+          if (emplName != null) await prefs.setString('emplName', emplName);
+          if (areaCode != null) await prefs.setString('areaCode', areaCode);
+          await prefs.setStringList('roles', roles.toList());
+          await prefs.setString('userID', userID);
 
-          final String role = responseData['role'] ?? '';
-
-          // Navigate based on role
-          Widget nextScreen;
-          switch (role) {
-            case 'Worker':
-              nextScreen = const WorkerHomeScreen();
-              break;
-            case 'Customer':
-              nextScreen = const HomeScreen();
-              break;
-            default:
-              nextScreen = const HomeScreen();
-          }
+          // Navigate based on role presence
+          final hasWorker = roles.any((r) => r.toLowerCase() == 'worker');
+          final Widget nextScreen =
+              hasWorker ? const WorkerHomeScreen() : const HomeScreen();
 
           if (mounted) {
             Navigator.pushReplacement(
@@ -153,18 +160,28 @@ class _LoginScreenState extends State<LoginScreen>
             );
           }
         } else {
-          _showErrorDialog(
-            "Authentication failed. Please check your credentials.",
-          );
+          _showErrorDialog('Authentication failed.');
         }
       } else {
-        _showErrorDialog("Failed to authenticate. Please try again.");
+        // Attempt to extract message from server
+        String serverMsg;
+        try {
+          final err = jsonDecode(resp.body);
+          serverMsg =
+              err is String
+                  ? err
+                  : (err['message']?.toString() ??
+                      err['error']?.toString() ??
+                      '');
+        } catch (_) {
+          serverMsg = '';
+        }
+        _showErrorDialog(
+          serverMsg.isNotEmpty
+              ? serverMsg
+              : 'Login failed (${resp.statusCode}). Please try again.',
+        );
       }
-      client.close();
-    } on SocketException catch (_) {
-      _showErrorDialog(
-        'No Internet Connection\nPlease check your connection and try again.',
-      );
     } catch (e) {
       _showErrorDialog('An error occurred: ${e.toString()}');
     } finally {
@@ -202,8 +219,6 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(

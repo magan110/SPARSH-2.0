@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:learning2/core/theme/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:learning2/core/services/session_manager.dart';
 
 class DsrExceptionEntryPage extends StatefulWidget {
   const DsrExceptionEntryPage({super.key});
@@ -31,13 +32,18 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
   String? metadataError;
   bool isSubmitting = false;
 
-  // Replace with actual loginId from your auth/session
-  final String loginId = '2948';
+  String? loginId; // fetched from SessionManager
 
   @override
   void initState() {
     super.initState();
-    fetchAllData();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    loginId = await SessionManager.getLoginId();
+    if (!mounted) return;
+    await fetchAllData();
   }
 
   Future<void> fetchAllData() async {
@@ -46,6 +52,9 @@ class _DsrExceptionEntryPageState extends State<DsrExceptionEntryPage> {
       errorMsg = null;
     });
     try {
+      if (loginId == null || loginId!.isEmpty) {
+        throw Exception('Missing loginId. Please login again.');
+      }
       await Future.wait([
         fetchApprovalAuthority(),
         fetchExceptionMetadata(),

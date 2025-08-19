@@ -9,6 +9,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../data/services/dsr_activity_service.dart';
 import 'package:dropdown_search/dropdown_search.dart';
 import 'dsr_exception_entry.dart';
+import 'package:learning2/core/services/session_manager.dart';
 
 class DsrVisitScreen extends StatefulWidget {
   final String? docuNumb;
@@ -47,8 +48,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
   String? tileAdhesiveStock;
   String? name = '';
   String? kycEditUrl;
-  final String _loginId =
-      '2948'; // Replace with actual loginId from auth service
+  String _loginId = '';
 
   // Dynamic lists
   List<Map<String, String>> productList = [];
@@ -95,6 +95,52 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
 
   // Service
   final DSRActivityService _dsrService = DSRActivityService();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLoginId();
+    _fetchDropdowns();
+    _fetchOtherDropdowns();
+
+    if (widget.docuNumb != null) {
+      processType = 'U'; // Set to update mode if docuNumb is provided
+      _fetchDSRDetailsForEdit(widget.docuNumb!);
+    } else {
+      // Add one row by default for each dynamic list only in add mode
+      if (productList.isEmpty) addProductRow();
+      if (giftList.isEmpty) addGiftRow();
+      if (marketSkuList.isEmpty) addMarketSkuRow();
+      marketNameController.text = marketName ?? '';
+      nameController.text = name ?? '';
+      kycStatusController.text = kycStatus ?? '';
+      wcEnrolmentController.text = wcEnrolment ?? '';
+      wcpEnrolmentController.text = wcpEnrolment ?? '';
+      vapEnrolmentController.text = vapEnrolment ?? '';
+      wcStockController.text = wcStock ?? '';
+      wcpStockController.text = wcpStock ?? '';
+      vapStockController.text = vapStock ?? '';
+      slWcVolumeController.text = slWcVolume ?? '';
+      slWpVolumeController.text = slWpVolume ?? '';
+      jkWcController.text = last3MonthsAvg['JK_WC'] ?? '';
+      jkWcpController.text = last3MonthsAvg['JK_WCP'] ?? '';
+      asWcController.text = last3MonthsAvg['AS_WC'] ?? '';
+      asWcpController.text = last3MonthsAvg['AS_WCP'] ?? '';
+      otWcController.text = last3MonthsAvg['OT_WC'] ?? '';
+      otWcpController.text = last3MonthsAvg['OT_WCP'] ?? '';
+      bwWcController.text = last3MonthBW['BW_WC'] ?? '';
+      bwWcpController.text = last3MonthBW['BW_WCP'] ?? '';
+      bwVapController.text = last3MonthBW['BW_VAP'] ?? '';
+      currentWcController.text = currentMonthBW['BW_WC'] ?? '';
+      currentWcpController.text = currentMonthBW['BW_WCP'] ?? '';
+      currentVapController.text = currentMonthBW['BW_VAP'] ?? '';
+    }
+  }
+
+  Future<void> _loadLoginId() async {
+    _loginId = await SessionManager.getLoginId() ?? '';
+    if (mounted) setState(() {});
+  }
 
   // Dynamic dropdown data
   List<Map<String, dynamic>> purchaserTypeOptions = [];
@@ -399,46 +445,6 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
   }
 
   // Location methods
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchDropdowns();
-    _fetchOtherDropdowns();
-
-    if (widget.docuNumb != null) {
-      processType = 'U'; // Set to update mode if docuNumb is provided
-      _fetchDSRDetailsForEdit(widget.docuNumb!);
-    } else {
-      // Add one row by default for each dynamic list only in add mode
-      if (productList.isEmpty) addProductRow();
-      if (giftList.isEmpty) addGiftRow();
-      if (marketSkuList.isEmpty) addMarketSkuRow();
-      marketNameController.text = marketName ?? '';
-      nameController.text = name ?? '';
-      kycStatusController.text = kycStatus ?? '';
-      wcEnrolmentController.text = wcEnrolment ?? '';
-      wcpEnrolmentController.text = wcpEnrolment ?? '';
-      vapEnrolmentController.text = vapEnrolment ?? '';
-      wcStockController.text = wcStock ?? '';
-      wcpStockController.text = wcpStock ?? '';
-      vapStockController.text = vapStock ?? '';
-      slWcVolumeController.text = slWcVolume ?? '';
-      slWpVolumeController.text = slWpVolume ?? '';
-      jkWcController.text = last3MonthsAvg['JK_WC'] ?? '';
-      jkWcpController.text = last3MonthsAvg['JK_WCP'] ?? '';
-      asWcController.text = last3MonthsAvg['AS_WC'] ?? '';
-      asWcpController.text = last3MonthsAvg['AS_WCP'] ?? '';
-      otWcController.text = last3MonthsAvg['OT_WC'] ?? '';
-      otWcpController.text = last3MonthsAvg['OT_WCP'] ?? '';
-      bwWcController.text = last3MonthBW['BW_WC'] ?? '';
-      bwWcpController.text = last3MonthBW['BW_WCP'] ?? '';
-      bwVapController.text = last3MonthBW['BW_VAP'] ?? '';
-      currentWcController.text = currentMonthBW['BW_WC'] ?? '';
-      currentWcpController.text = currentMonthBW['BW_WCP'] ?? '';
-      currentVapController.text = currentMonthBW['BW_VAP'] ?? '';
-    }
-  }
 
   @override
   void dispose() {
@@ -2285,9 +2291,13 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                       Checkbox(
                                         value: brandsWc[code] ?? false,
                                         onChanged:
-                                            (v) => setState(
-                                              () => brandsWc[code] = v ?? false,
-                                            ),
+                                            isReadOnly
+                                                ? null
+                                                : (v) => setState(
+                                                  () =>
+                                                      brandsWc[code] =
+                                                          v ?? false,
+                                                ),
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(
                                             SparshBorderRadius.sm,
@@ -2331,10 +2341,13 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                       Checkbox(
                                         value: brandsWcp[code] ?? false,
                                         onChanged:
-                                            (v) => setState(
-                                              () =>
-                                                  brandsWcp[code] = v ?? false,
-                                            ),
+                                            isReadOnly
+                                                ? null
+                                                : (v) => setState(
+                                                  () =>
+                                                      brandsWcp[code] =
+                                                          v ?? false,
+                                                ),
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(
                                             SparshBorderRadius.sm,
@@ -3027,7 +3040,9 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                                 )
                                 .toList(),
                         onChanged:
-                            (v) => setState(() => tileAdhesiveSeller = v),
+                            isReadOnly
+                                ? null
+                                : (v) => setState(() => tileAdhesiveSeller = v),
                       ),
                       TextFormField(
                         controller: tileAdhesiveStockController,
@@ -3035,6 +3050,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                           'Tile Adhesive Stock',
                         ),
                         keyboardType: TextInputType.number,
+                        readOnly: isReadOnly,
                         onChanged: (v) => tileAdhesiveStock = v,
                       ),
                     ],
@@ -3057,6 +3073,7 @@ class _DsrVisitScreenState extends State<DsrVisitScreen> {
                         ),
                         readOnly: true,
                         onTap: () async {
+                          if (isReadOnly) return;
                           final picked = await showDatePicker(
                             context: context,
                             initialDate: DateTime.now(),

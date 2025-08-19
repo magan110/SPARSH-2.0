@@ -572,7 +572,7 @@ class DSRActivityService {
       'slWpVlum': _numStr(dsrData['SlWpVlum']),
       'deptCode': dsrData['DeptCode'] ?? '',
       'pendWith': dsrData['PendWith'] ?? '',
-      'createId': dsrData['CreateId'] ?? '2948',
+      'createId': dsrData['CreateId'] ?? '',
       'finlRslt': dsrData['FinlRslt'] ?? '',
       'geoLatit': dsrData['GeoLatit'] ?? '',
       'geoLongt': dsrData['GeoLongt'] ?? '',

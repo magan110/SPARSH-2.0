@@ -1,4 +1,3 @@
-
 class TokenSummaryModel {
   static final TokenSummaryModel _instance = TokenSummaryModel._internal();
   factory TokenSummaryModel() => _instance;
